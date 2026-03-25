@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Analyst Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .input-group input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+        .status-dot.loading {
+            background: #ff9800;
+            animation: pulse 1s infinite;
+        }
+        .status-dot.error {
+            background: #f44336;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .result-area {
+            min-height: 200px;
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+        }
+        .result-area pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+        }
+        .error-box {
+            background: #ffebee;
+            border: 1px solid #ffcdd2;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .approval-box {
+            background: #fff3e0;
+            border: 1px solid #ffcc80;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+        .approval-box h3 {
+            color: #e65100;
+            margin-bottom: 10px;
+        }
+        .approval-box pre {
+            background: #fff8e1;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin-bottom: 15px;
+        }
+        .approval-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-approve {
+            background: #4caf50;
+        }
+        .btn-reject {
+            background: #f44336;
+        }
+        .examples {
+            margin-top: 20px;
+        }
+        .examples h4 {
+            margin-bottom: 10px;
+            color: #666;
+        }
+        .example-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .example-tag {
+            padding: 8px 15px;
+            background: #e8eaf6;
+            color: #3f51b5;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .example-tag:hover {
+            background: #c5cae9;
+        }
+        .thread-info {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Data Analyst Agent</h1>
+            <p>自然语言驱动的智能数据分析助手</p>
+        </div>
+
+        <div class="card">
+            <div class="input-group">
+                <input type="text" id="queryInput" placeholder="输入您的问题，例如：查询上周销售额最高的商品" />
+                <button class="btn" id="submitBtn" onclick="submitQuery()">查询</button>
+            </div>
+
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">服务就绪</span>
+            </div>
+
+            <div id="errorBox" class="error-box" style="display: none;"></div>
+
+            <div id="approvalBox" class="approval-box" style="display: none;">
+                <h3>⚠️ 需要审核</h3>
+                <p>此操作需要人工确认：</p>
+                <pre id="approvalContent"></pre>
+                <div class="approval-buttons">
+                    <button class="btn btn-approve" onclick="handleApproval('approve')">✓ 批准</button>
+                    <button class="btn btn-reject" onclick="handleApproval('reject')">✗ 拒绝</button>
+                </div>
+            </div>
+
+            <div class="result-area">
+                <pre id="resultContent">等待查询...</pre>
+            </div>
+
+            <div class="thread-info" id="threadInfo"></div>
+
+            <div class="examples">
+                <h4>示例查询：</h4>
+                <div class="example-tags">
+                    <span class="example-tag" onclick="setQuery('查询所有表')">查询所有表</span>
+                    <span class="example-tag" onclick="setQuery('获取 users 表的结构')">获取表结构</span>
+                    <span class="example-tag" onclick="setQuery('查询最近10条订单记录')">查询订单</span>
+                    <span class="example-tag" onclick="setQuery('统计各地区的销售总额')">统计销售</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8082/api';
+        let currentThreadId = null;
+
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                updateStatus('ready', `服务正常 | 数据库: ${data.database_connected ? '已连接' : '未连接'}`);
+            } catch (error) {
+                updateStatus('error', '服务连接失败');
+                showError('无法连接到后端服务，请确保服务正在运行');
+            }
+        }
+
+        function updateStatus(status, text) {
+            const dot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            
+            dot.className = 'status-dot';
+            if (status === 'loading') dot.classList.add('loading');
+            if (status === 'error') dot.classList.add('error');
+            
+            statusText.textContent = text;
+        }
+
+        function showError(message) {
+            const errorBox = document.getElementById('errorBox');
+            errorBox.textContent = message;
+            errorBox.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('errorBox').style.display = 'none';
+        }
+
+        function showResult(content) {
+            document.getElementById('resultContent').textContent = content;
+        }
+
+        function showApproval(content) {
+            const box = document.getElementById('approvalBox');
+            document.getElementById('approvalContent').textContent = JSON.stringify(content, null, 2);
+            box.style.display = 'block';
+        }
+
+        function hideApproval() {
+            document.getElementById('approvalBox').style.display = 'none';
+        }
+
+        function setQuery(text) {
+            document.getElementById('queryInput').value = text;
+        }
+
+        async function submitQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                showError('请输入查询内容');
+                return;
+            }
+
+            hideError();
+            hideApproval();
+            updateStatus('loading', '正在处理...');
+            showResult('正在查询，请稍候...');
+
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        thread_id: currentThreadId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.thread_id) {
+                    currentThreadId = data.thread_id;
+                    document.getElementById('threadInfo').textContent = `会话ID: ${data.thread_id}`;
+                }
+
+                if (data.requires_approval) {
+                    updateStatus('ready', '等待审核');
+                    showApproval(data.approval_request);
+                    showResult('操作需要人工审核，请查看上方详情并做出决定。');
+                } else if (data.success) {
+                    updateStatus('ready', '查询完成');
+                    showResult(data.message || JSON.stringify(data, null, 2));
+                } else {
+                    updateStatus('error', '查询失败');
+                    showError(data.error || '未知错误');
+                    showResult('');
+                }
+
+            } catch (error) {
+                updateStatus('error', '请求失败');
+                showError(`请求错误: ${error.message}`);
+                showResult('');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function handleApproval(decision) {
+            if (!currentThreadId) {
+                showError('没有活动的会话');
+                return;
+            }
+
+            hideApproval();
+            updateStatus('loading', '正在处理审核...');
+
+            try {
+                const response = await fetch(`${API_BASE}/approve`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        thread_id: currentThreadId,
+                        decision: decision,
+                        reason: decision === 'reject' ? '用户拒绝执行此操作' : null
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.success) {
+                    updateStatus('ready', '审核已处理');
+                    showResult(data.result?.message || JSON.stringify(data, null, 2));
+                } else {
+                    updateStatus('error', '审核处理失败');
+                    showError(data.message || '处理失败');
+                }
+
+            } catch (error) {
+                updateStatus('error', '审核请求失败');
+                showError(`审核错误: ${error.message}`);
+            }
+        }
+
+        document.getElementById('queryInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                submitQuery();
+            }
+        });
+
+        checkHealth();
+    </script>
+</body>
+</html>
