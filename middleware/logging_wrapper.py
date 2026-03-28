@@ -1,115 +1,59 @@
 """
-日志中间件包装器
+日志中间件
 
-简化版本：直接记录日志，不使用 wrap_tool_call
+使用 @wrap_tool_call 装饰器记录工具调用（异步版本）
 """
 
 import time
-from typing import Callable, Any, Dict, Optional
+from typing import Any
+
+from langchain.agents.middleware import wrap_tool_call
 
 from .logging_middleware import local_logger
 
 
-class LoggingMiddleware:
+@wrap_tool_call
+async def logging_middleware(request, handler) -> Any:
     """
-    日志中间件类
+    日志中间件 - 记录工具调用的输入输出和执行时间（异步版本）
     
-    记录工具调用的输入输出和执行时间
+    参数:
+        request: 工具调用请求
+        handler: 执行工具的处理器
+        
+    返回:
+        工具执行结果
     """
+    tool_name = getattr(request, 'name', 'unknown')
+    tool_args = getattr(request, 'args', {})
     
-    def __init__(self):
-        self.enabled = True
+    start_time = time.time()
     
-    def wrap_tool(self, tool_func: Callable) -> Callable:
-        """
-        包装工具函数，添加日志记录
+    try:
+        result = await handler(request)
         
-        参数:
-            tool_func: 原始工具函数
-            
-        返回:
-            包装后的函数
-        """
-        def wrapper(*args, **kwargs) -> Any:
-            if not self.enabled:
-                return tool_func(*args, **kwargs)
-            
-            tool_name = getattr(tool_func, '__name__', 'unknown')
-            start_time = time.time()
-            
-            try:
-                result = tool_func(*args, **kwargs)
-                
-                execution_time_ms = (time.time() - start_time) * 1000
-                local_logger.log_tool_call(
-                    thread_id=kwargs.get('thread_id', 'unknown'),
-                    tool_name=tool_name,
-                    input_args=kwargs,
-                    output=str(result)[:2000] if result else None,
-                    success=True,
-                    execution_time_ms=execution_time_ms
-                )
-                
-                return result
-                
-            except Exception as e:
-                execution_time_ms = (time.time() - start_time) * 1000
-                local_logger.log_tool_call(
-                    thread_id=kwargs.get('thread_id', 'unknown'),
-                    tool_name=tool_name,
-                    input_args=kwargs,
-                    success=False,
-                    execution_time_ms=execution_time_ms,
-                    error=str(e)
-                )
-                raise
+        execution_time_ms = (time.time() - start_time) * 1000
         
-        return wrapper
-    
-    async def wrap_tool_async(self, tool_func: Callable) -> Callable:
-        """
-        包装异步工具函数
-        """
-        async def wrapper(*args, **kwargs) -> Any:
-            if not self.enabled:
-                return await tool_func(*args, **kwargs)
-            
-            tool_name = getattr(tool_func, '__name__', 'unknown')
-            start_time = time.time()
-            
-            try:
-                result = await tool_func(*args, **kwargs)
-                
-                execution_time_ms = (time.time() - start_time) * 1000
-                local_logger.log_tool_call(
-                    thread_id=kwargs.get('thread_id', 'unknown'),
-                    tool_name=tool_name,
-                    input_args=kwargs,
-                    output=str(result)[:2000] if result else None,
-                    success=True,
-                    execution_time_ms=execution_time_ms
-                )
-                
-                return result
-                
-            except Exception as e:
-                execution_time_ms = (time.time() - start_time) * 1000
-                local_logger.log_tool_call(
-                    thread_id=kwargs.get('thread_id', 'unknown'),
-                    tool_name=tool_name,
-                    input_args=kwargs,
-                    success=False,
-                    execution_time_ms=execution_time_ms,
-                    error=str(e)
-                )
-                raise
+        local_logger.log_tool_call(
+            thread_id='current',
+            tool_name=tool_name,
+            input_args=tool_args,
+            output=str(result)[:2000] if result else None,
+            success=True,
+            execution_time_ms=execution_time_ms
+        )
         
-        return wrapper
-
-
-def create_logging_middleware() -> LoggingMiddleware:
-    """创建日志中间件实例"""
-    return LoggingMiddleware()
-
-
-logging_middleware = create_logging_middleware()
+        return result
+        
+    except Exception as e:
+        execution_time_ms = (time.time() - start_time) * 1000
+        
+        local_logger.log_tool_call(
+            thread_id='current',
+            tool_name=tool_name,
+            input_args=tool_args,
+            success=False,
+            execution_time_ms=execution_time_ms,
+            error=str(e)
+        )
+        raise

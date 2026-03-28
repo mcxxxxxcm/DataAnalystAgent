@@ -7,30 +7,35 @@
 - 本地日志记录器
 - HITL 配置
 - 中间件组合工具
+- 短期记忆（AsyncPostgresSaver）
 """
 
 from .logging_middleware import LocalLogger, local_logger
-from .logging_wrapper import LoggingMiddleware, logging_middleware, create_logging_middleware
+from .logging_wrapper import logging_middleware
 from .config import (
     HITLConfig,
     get_middleware_list,
     get_interrupt_on_config,
     get_checkpointer,
+    get_async_checkpointer,
+    setup_checkpointer,
+    close_checkpointer,
+    reset_checkpointer,
     get_dev_middleware_config
 )
 
 __all__ = [
-    # 日志
     "LocalLogger",
     "local_logger",
-    "LoggingMiddleware",
     "logging_middleware",
-    "create_logging_middleware",
 
-    # 配置
     "HITLConfig",
     "get_middleware_list",
     "get_interrupt_on_config",
     "get_checkpointer",
+    "get_async_checkpointer",
+    "setup_checkpointer",
+    "close_checkpointer",
+    "reset_checkpointer",
     "get_dev_middleware_config"
 ]

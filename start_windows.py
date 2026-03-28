@@ -1,5 +1,14 @@
+"""
+Windows 兼容启动脚本
+
+解决 Windows 上 asyncio 的事件循环问题
+"""
 import sys
 import os
+import asyncio
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

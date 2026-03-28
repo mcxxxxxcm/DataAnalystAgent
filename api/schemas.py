@@ -56,6 +56,10 @@ class QueryResponse(BaseModel):
         default=None,
         description="图表列表（base64编码）"
     )
+    chart_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="图表数据"
+    )
     requires_approval: bool = Field(
         default=False,
         description="是否需要人工审核"

@@ -3,16 +3,22 @@
 
 位置：api/main.py
 职责：FastAPI 应用配置和启动
+支持短期记忆（多轮对话上下文保持）
 """
 
 import sys
 import os
+import asyncio
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from contextlib import asynccontextmanager
+from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,16 +28,19 @@ import uvicorn
 from config.settings import get_settings, validate_settings
 from core.database import db_pool
 from api.routes import router
+from middleware import setup_checkpointer, close_checkpointer
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     应用生命周期管理
 
     启动时：
     1. 验证配置
     2. 初始化数据库连接池
+    3. 初始化 checkpointer 数据库表（短期记忆）
+    4. 预热 matplotlib
 
     关闭时：
     1. 关闭数据库连接池
@@ -43,13 +52,41 @@ async def lifespan(app: FastAPI):
     validate_settings()
     await db_pool.initialize()
 
+    print("Initializing checkpointer (short-term memory)...")
+    try:
+        await setup_checkpointer()
+        print("Checkpointer initialized successfully!")
+        
+        # 启动时清理旧的 checkpoint（保留最近7天）
+        print("Cleaning up old checkpoints...")
+        from utils.checkpoint_cleanup import cleanup_old_checkpoints
+        cleanup_result = await cleanup_old_checkpoints(days_to_keep=7, dry_run=False)
+        if cleanup_result.get("deleted_checkpoints", 0) > 0:
+            print(f"Cleaned up {cleanup_result['deleted_checkpoints']} old checkpoints")
+    except Exception as e:
+        print(f"Warning: Checkpointer setup failed: {e}")
+        print("Short-term memory will use fallback mode.")
+
+    import threading
+    def warmup_matplotlib():
+        try:
+            from tools.viz_tools import warmup_matplotlib as _warmup
+            _warmup()
+        except Exception as e:
+            print(f"Matplotlib warmup failed: {e}")
+    
+    warmup_thread = threading.Thread(target=warmup_matplotlib, daemon=True)
+    warmup_thread.start()
+
     print("=" * 50)
     print("Service Started!")
+    print("Short-term memory enabled: Multi-turn conversations supported!")
     print("=" * 50)
 
     yield
 
     print("Shutting down...")
+    await close_checkpointer()
     await db_pool.close()
     print("Service stopped.")
 

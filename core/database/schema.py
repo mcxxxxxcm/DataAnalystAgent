@@ -84,7 +84,14 @@ class SchemaManager:
         self._cache_ttl = 3600
 
     async def list_tables(self) -> List[str]:
-        """列出所有表名"""
+        """列出所有业务表名（排除系统表）"""
+        # 系统表前缀/名称，需要排除
+        SYSTEM_TABLES = {
+            'checkpoint_blobs', 'checkpoint_migrations', 'checkpoint_writes',
+            'checkpoints', 'conversations', 'messages', 'tool_calls',
+            'query_cache', 'report_templates'
+        }
+        
         query = """
         SELECT table_name 
         FROM information_schema.tables 
@@ -92,7 +99,8 @@ class SchemaManager:
         ORDER BY table_name;
         """
         rows = await db_pool.fetch(query)
-        return [row['table_name'] for row in rows]
+        # 过滤掉系统表
+        return [row['table_name'] for row in rows if row['table_name'] not in SYSTEM_TABLES]
 
     async def get_table_schema(self, table_name: str) -> TableSchema:
         """获取表结构"""
@@ -173,31 +181,69 @@ class SchemaManager:
 
         return schema
 
-    async def get_relevant_schemas(self, query: str, max_tables: int = 5) -> str:
-        """获取相关表的Schema"""
+    async def get_relevant_schemas(self, query: str, max_tables: int = 3) -> str:
+        """获取相关表的Schema（排除系统表）"""
+        # 系统表前缀/名称，需要排除
+        SYSTEM_TABLES = {
+            'checkpoint_blobs', 'checkpoint_migrations', 'checkpoint_writes',
+            'checkpoints', 'conversations', 'messages', 'tool_calls',
+            'query_cache', 'report_templates'
+        }
+        
+        # 业务关键词到表的映射
+        KEYWORD_TABLE_MAP = {
+            '销售': ['sales'],
+            '订单': ['orders', 'order_items'],
+            '用户': ['users'],
+            '产品': ['products'],
+            '商品': ['products'],
+            '收入': ['sales'],
+            '利润': ['sales'],
+            '客户': ['users'],
+            'sale': ['sales'],
+            'order': ['orders', 'order_items'],
+            'user': ['users'],
+            'product': ['products'],
+            'revenue': ['sales'],
+            'customer': ['users'],
+        }
+        
         all_tables = await self.list_tables()
         query_lower = query.lower()
-
+        
         relevant_tables = []
+        
+        # 1. 基于关键词匹配
+        for keyword, tables in KEYWORD_TABLE_MAP.items():
+            if keyword in query_lower or keyword.lower() in query_lower:
+                for table in tables:
+                    if table in all_tables and table not in relevant_tables:
+                        relevant_tables.append(table)
+        
+        # 2. 基于表名匹配（排除系统表）
         for table in all_tables:
+            if table in SYSTEM_TABLES:
+                continue
             if table.lower() in query_lower:
-                relevant_tables.append(table)
+                if table not in relevant_tables:
+                    relevant_tables.append(table)
             elif table.rstrip('s').lower() in query_lower:
-                relevant_tables.append(table)
-
+                if table not in relevant_tables:
+                    relevant_tables.append(table)
+        
+        # 3. 如果没有匹配，返回主要业务表
         if not relevant_tables:
-            schemas_with_counts = []
-            for table in all_tables[:10]:
-                schema = await self.get_table_schema(table)
-                schemas_with_counts.append((table, schema.row_count))
-            schemas_with_counts.sort(key=lambda x: x[1], reverse=True)
-            relevant_tables = [s[0] for s in schemas_with_counts[:max_tables]]
-
+            PRIORITY_TABLES = ['sales', 'orders', 'order_items', 'products', 'users']
+            for table in PRIORITY_TABLES:
+                if table in all_tables:
+                    relevant_tables.append(table)
+        
+        # 获取 schema
         schema_descriptions = []
         for table in relevant_tables[:max_tables]:
             schema = await self.get_table_schema(table)
             schema_descriptions.append(schema.to_llm_format())
-
+        
         return "\n\n".join(schema_descriptions)
 
     async def get_sample_data(self, table_name: str, limit: int = 3) -> List[Dict[str, Any]]:

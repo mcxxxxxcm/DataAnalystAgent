@@ -4,8 +4,13 @@ langchain-openai>=0.2.0
 langchain-core>=0.3.0
 deepagents>=0.1.0
 
+# LangGraph - Checkpointer (Short-term Memory)
+langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0
+
 # Database
 asyncpg>=0.29.0
+psycopg[binary,pool]>=3.1.0
 sqlparse>=0.4.4
 
 # Data Processing
