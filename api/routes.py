@@ -25,7 +25,115 @@ from .schemas import (
 
 router = APIRouter()
 
-CHART_TOOL_NAMES = {'create_line_chart', 'create_bar_chart', 'create_pie_chart'}
+CHART_TOOL_NAMES = {
+    'create_line_chart', 'create_bar_chart', 'create_pie_chart',
+    'create_chart', 'create_custom_chart'
+}
+
+
+def format_approval_request(interrupt_data: List[Any], thread_id: str) -> Dict[str, Any]:
+    """
+    格式化审核请求，使其更友好
+    
+    Args:
+        interrupt_data: 原始中断数据（可能是 Interrupt 对象或字典）
+        thread_id: 会话ID
+        
+    Returns:
+        格式化后的审核请求
+    """
+    from api.schemas import FormattedApprovalRequest, ActionRequest
+    
+    actions = []
+    
+    for item in interrupt_data:
+        # 处理 Interrupt 对象
+        if hasattr(item, 'value'):
+            value = item.value
+        elif isinstance(item, dict):
+            value = item.get("value", {})
+        else:
+            continue
+        
+        # 获取 action_requests
+        if isinstance(value, dict):
+            action_requests = value.get("action_requests", [])
+        elif hasattr(value, 'get'):
+            action_requests = value.get("action_requests", [])
+        else:
+            action_requests = []
+        
+        for action in action_requests:
+            if isinstance(action, dict):
+                tool_name = action.get("name", "unknown")
+                args = action.get("args", {})
+                description = action.get("description", "")
+            elif hasattr(action, 'name'):
+                tool_name = action.name
+                args = getattr(action, 'args', {})
+                description = getattr(action, 'description', '')
+            else:
+                continue
+            
+            # 判断风险等级
+            risk_level = "low"
+            if tool_name == "query_database":
+                sql = args.get("query", "").upper() if isinstance(args, dict) else ""
+                if "DELETE" in sql or "DROP" in sql or "TRUNCATE" in sql:
+                    risk_level = "high"
+                elif "UPDATE" in sql or "INSERT" in sql:
+                    risk_level = "medium"
+            
+            # 生成友好的描述
+            friendly_desc = _generate_friendly_description(tool_name, args, description)
+            
+            actions.append(ActionRequest(
+                tool_name=tool_name,
+                description=friendly_desc,
+                sql=args.get("query") if isinstance(args, dict) and tool_name == "query_database" else None,
+                risk_level=risk_level
+            ))
+    
+    # 生成标题和消息
+    if len(actions) == 1:
+        title = f"⚠️ 需要审核: {actions[0].tool_name}"
+        message = f"此操作需要人工确认后才能执行。"
+    else:
+        title = f"⚠️ 需要审核: {len(actions)} 个操作"
+        message = "以下操作需要人工确认后才能执行。"
+    
+    return FormattedApprovalRequest(
+        title=title,
+        message=message,
+        actions=actions,
+        allowed_decisions=["approve", "reject"],
+        thread_id=thread_id
+    )
+
+
+def _generate_friendly_description(tool_name: str, args: Dict, original_desc: str) -> str:
+    """生成友好的操作描述"""
+    if tool_name == "query_database":
+        sql = args.get("query", "")
+        sql_upper = sql.upper().strip()
+        
+        if sql_upper.startswith("SELECT"):
+            return f"📊 查询数据\n执行 SELECT 查询，读取数据。"
+        elif sql_upper.startswith("INSERT"):
+            return f"➕ 插入数据\n将向数据库插入新记录。"
+        elif sql_upper.startswith("UPDATE"):
+            return f"✏️ 更新数据\n将修改数据库中的现有记录。"
+        elif sql_upper.startswith("DELETE"):
+            return f"🗑️ 删除数据\n将从数据库删除记录（不可恢复）。"
+        else:
+            return f"🔧 执行 SQL\n{sql[:100]}..."
+    
+    elif tool_name == "create_chart":
+        chart_type = args.get("chart_type", "unknown")
+        return f"📈 生成图表\n创建 {chart_type} 类型图表。"
+    
+    else:
+        return original_desc[:200] if original_desc else f"执行 {tool_name}"
 
 
 def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
@@ -38,6 +146,8 @@ def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
     Returns:
         图表数据字典或 None
     """
+    from tools.chart_tools import get_cached_chart
+    
     for msg in reversed(messages):
         msg_type = type(msg).__name__
         
@@ -49,7 +159,16 @@ def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
                 else:
                     tool_result = content if isinstance(content, dict) else {}
                 
-                if tool_result.get('image_base64'):
+                image_base64 = tool_result.get('image_base64', '')
+                if image_base64:
+                    # 处理 chart_id 格式
+                    if image_base64.startswith('chart_id:'):
+                        chart_id = image_base64.split(':')[1]
+                        actual_image = get_cached_chart(chart_id)
+                        if actual_image:
+                            tool_result['image_base64'] = actual_image
+                        else:
+                            continue
                     return tool_result
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -63,7 +182,16 @@ def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
                 else:
                     tool_result = content if isinstance(content, dict) else {}
                 
-                if tool_result.get('image_base64'):
+                image_base64 = tool_result.get('image_base64', '')
+                if image_base64:
+                    # 处理 chart_id 格式
+                    if image_base64.startswith('chart_id:'):
+                        chart_id = image_base64.split(':')[1]
+                        actual_image = get_cached_chart(chart_id)
+                        if actual_image:
+                            tool_result['image_base64'] = actual_image
+                        else:
+                            continue
                     return tool_result
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -86,6 +214,8 @@ def extract_all_chart_data(messages: List[Any]) -> List[Dict[str, Any]]:
     Returns:
         图表数据列表（已去重）
     """
+    from tools.chart_tools import get_cached_chart
+    
     charts = []
     seen_chart_ids = set()
     
@@ -93,7 +223,6 @@ def extract_all_chart_data(messages: List[Any]) -> List[Dict[str, Any]]:
         msg_type = type(msg).__name__
         msg_name = getattr(msg, 'name', None)
         
-        # 只处理 ToolMessage，避免重复处理
         if msg_type == 'ToolMessage':
             content = getattr(msg, 'content', None)
             
@@ -103,9 +232,18 @@ def extract_all_chart_data(messages: List[Any]) -> List[Dict[str, Any]]:
                     if isinstance(tool_result, dict) and tool_result.get('image_base64'):
                         chart_type = tool_result.get('chart_type', 'unknown')
                         message = tool_result.get('message', '')
-                        
-                        # 使用 chart_type + message 的完整内容 + image_base64 的前50字符作为唯一标识
                         image_base64 = tool_result.get('image_base64', '')
+                        
+                        # 处理 chart_id 格式
+                        if image_base64.startswith('chart_id:'):
+                            chart_id_key = image_base64.split(':')[1]
+                            actual_image = get_cached_chart(chart_id_key)
+                            if actual_image:
+                                tool_result['image_base64'] = actual_image
+                                image_base64 = actual_image
+                            else:
+                                continue
+                        
                         chart_id = f"{chart_type}_{hashlib.md5((message + image_base64[:50]).encode()).hexdigest()}"
                         
                         if chart_id not in seen_chart_ids:
@@ -185,11 +323,12 @@ async def query(request: QueryRequest):
 
         if "__interrupt__" in result:
             interrupt_data = result["__interrupt__"]
+            formatted_request = format_approval_request(interrupt_data, thread_id)
             return QueryResponse(
                 success=False,
                 thread_id=thread_id,
                 requires_approval=True,
-                approval_request=interrupt_data,
+                approval_request=formatted_request,
                 message="此操作需要人工审核"
             )
 

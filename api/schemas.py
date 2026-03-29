@@ -34,6 +34,25 @@ class ApprovalRequest(BaseModel):
     )
 
 
+# ==================== 审核格式化模型 ====================
+
+class ActionRequest(BaseModel):
+    """待审核的操作"""
+    tool_name: str = Field(description="工具名称")
+    description: str = Field(description="操作描述")
+    sql: Optional[str] = Field(default=None, description="SQL 语句")
+    risk_level: str = Field(default="medium", description="风险等级: low, medium, high")
+
+
+class FormattedApprovalRequest(BaseModel):
+    """格式化后的审核请求"""
+    title: str = Field(description="审核标题")
+    message: str = Field(description="审核消息")
+    actions: List[ActionRequest] = Field(description="待审核操作列表")
+    allowed_decisions: List[str] = Field(description="允许的决策类型")
+    thread_id: str = Field(description="会话ID")
+
+
 # ==================== 响应模型 ====================
 
 class QueryResponse(BaseModel):
@@ -60,13 +79,21 @@ class QueryResponse(BaseModel):
         default=None,
         description="图表数据"
     )
+    all_charts: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="所有图表数据"
+    )
+    debug_info: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="调试信息"
+    )
     requires_approval: bool = Field(
         default=False,
         description="是否需要人工审核"
     )
-    approval_request: List[Any] = Field(
+    approval_request: Optional[FormattedApprovalRequest] = Field(
         default=None,
-        description="审核请求详情"
+        description="格式化后的审核请求"
     )
     error: Optional[str] = Field(
         default=None,

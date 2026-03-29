@@ -8,6 +8,7 @@ SYSTEM_PROMPT = """你是数据分析助手。
 1. 调用 get_relevant_schemas 获取相关表结构
 2. 直接调用 query_database 执行 SQL
 3. 返回结果
+4. 用户要求图表时，调用 create_chart
 
 ## 重要规则
 - 只调用必要的工具，不要冗余调用
@@ -28,6 +29,23 @@ SYSTEM_PROMPT = """你是数据分析助手。
 - 各地区销售总额: SELECT region, SUM(revenue) FROM sales GROUP BY region
 - 用户订单数: SELECT user_id, COUNT(*) FROM orders GROUP BY user_id
 
+## 图表生成
+用户要求图表时，使用 create_chart 工具：
+- chart_type: bar(柱状图), line(折线图), pie(饼图), scatter(散点图)
+- data: 查询结果数据
+- x_field: X轴字段
+- y_field: Y轴字段
+- title: 图表标题
+
+示例：
+create_chart(
+    chart_type="bar",
+    data=[{"region": "华东", "revenue": 100}, ...],
+    x_field="region",
+    y_field="revenue",
+    title="各地区销售额"
+)
+
 用中文回复。"""
 
 # Few-shot 示例
@@ -37,88 +55,27 @@ FEW_SHOT_EXAMPLES: List[Dict[str, str]] = [
         "assistant": "我来帮你查询上周销售额最高的商品。首先让我获取相关的表结构信息..."
     },
     {
-        "user": "画一个各地区销售额的柱状图",
-        "assistant": "我来为你创建各地区销售额的柱状图。首先查询各地区的销售数据，然后生成图表..."
+        "user": "帮我添加一个用户",
+        "assistant": "好的，我来帮你添加用户。请提供用户信息：用户名、邮箱等。"
     },
     {
-        "user": "分析用户购买行为的相关性",
-        "assistant": "我来分析用户购买行为的相关性。首先获取用户购买数据，然后进行统计分析..."
-    },
-    {
-        "user": "添加用户张三，邮箱为zhangsan@example.com",
-        "assistant": "我来帮你在users表中添加用户。执行INSERT语句：INSERT INTO users (username, email) VALUES ('张三', 'zhangsan@example.com')。此操作需要人工审核。"
-    },
+        "user": "用柱状图展示各地区销售额",
+        "assistant": "好的，我先查询各地区销售数据，然后生成柱状图。"
+    }
 ]
 
-# SQL生成提示词
-SQL_GENERATION_PROMPT = """根据用户的自然语言查询，生成对应的SQL语句。
-## 数据库Schema信息
-{schema_info}
 
-## 注意事项
-1. 只适用上面列出的表和列
-2. 使用标准SQL语法（PostgreSQL）
-3. 对于时间范围查询，使用正确的日期函数
-4. 不要使用子查询，除非必要
-5. 查询会自动添加LIMIT限制
-
-## 示例
-用户：查询上周销售额最高的商品
-SQL:
-```sql
-SELECT p.product_name, SUM(oi.quantity * oi.price) as total_sales
-FROM products p
-JOIN order_items oi ON p.id = oi.product_id
-JOIN orders o ON oi.order_id = o.id
-WHERE o.created_at >= CURRENT_DATE - INTERVAL '7 days'
-GROUP BY p.product_name
-ORDER BY total_sales DESC
-LIMIT 1
-```
-
-用户：{query}
-SQL:
-"""
-
-# 可视化提示词
-VISUALIZATION_PROMPT = """根据数据和用户需求，生成合适的可视化图表。
-## 数据信息
-- 数据行数：{row_count}
-- 数据列：{columns}
-- 数据预览：{data_review}
-
-## 用户需求
-{user_request}
-
-## 图表类型建议
-{chart_suggestions}
-
-请选择最合适的图表类型并生成
-"""
-
-# 错误修正提示词
-ERROR_CORRECTION_PROMPT = """SQL执行出错，请分析并修正。
-## 原始SQL
-{original_sql}
-
-## 错误信息
-{error_message}
-
-## 可用的表结构
-{schema_info}
-
-## 分析
-请分析错误原因并提供修正后的SQL。
-"""
-
-
-def format_system_prompt(db_info: str = "", custom_instructions: str = "") -> str:
+def build_system_prompt(
+    db_info: str = "",
+    custom_instructions: str = ""
+) -> str:
     """
-    格式化系统提示词
-
-    Args：
-        db_info：数据库信息
-        custom_instructions：自定义指令
+    构建完整的系统提示词
+    
+    参数：
+        db_info: 数据库信息
+        custom_instructions: 自定义指令
+        
     返回：
         完整的系统提示词
     """

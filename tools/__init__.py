@@ -12,9 +12,13 @@ from .viz_tools import (
     create_pie_chart,
     VIZ_TOOLS
 )
+from .chart_tools import (
+    create_chart,
+    create_custom_chart,
+    CHART_TOOLS
+)
 
-# 合并所有工具
-ALL_TOOLS = SQL_TOOLS + VIZ_TOOLS
+ALL_TOOLS = SQL_TOOLS + CHART_TOOLS
 
 __all__ = [
     "query_database",
@@ -27,5 +31,8 @@ __all__ = [
     "create_bar_chart",
     "create_pie_chart",
     "VIZ_TOOLS",
+    "create_chart",
+    "create_custom_chart",
+    "CHART_TOOLS",
     "ALL_TOOLS"
 ]

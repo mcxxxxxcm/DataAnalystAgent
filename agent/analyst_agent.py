@@ -22,7 +22,7 @@ from middleware import (
     get_checkpointer,
     get_async_checkpointer
 )
-from .prompts import format_system_prompt
+from .prompts import build_system_prompt
 
 
 class AnalystAgentFactory:
@@ -68,7 +68,7 @@ class AnalystAgentFactory:
             base_url=self.settings.base_url
         )
 
-        system_prompt = custom_system_prompt or format_system_prompt(
+        system_prompt = custom_system_prompt or build_system_prompt(
             db_info=f"数据库: {self.settings.db_name}",
             custom_instructions="请用中文回复用户"
         )
@@ -128,7 +128,7 @@ class AnalystAgentFactory:
             base_url=self.settings.base_url
         )
 
-        system_prompt = custom_system_prompt or format_system_prompt(
+        system_prompt = custom_system_prompt or build_system_prompt(
             db_info=f"数据库: {self.settings.db_name}",
             custom_instructions="请用中文回复用户"
         )

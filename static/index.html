@@ -242,12 +242,12 @@
         <div id="errorBox" class="error-box" style="display: none;"></div>
 
         <div id="approvalBox" class="approval-box" style="display: none;">
-            <h3>⚠️ 需要审核</h3>
-            <p>此操作需要人工确认：</p>
-            <pre id="approvalContent"></pre>
-            <div class="approval-buttons">
-                <button class="btn btn-approve" onclick="handleApproval('approve')">✓ 批准</button>
-                <button class="btn btn-reject" onclick="handleApproval('reject')">✗ 拒绝</button>
+            <h3 id="approvalTitle">⚠️ 需要审核</h3>
+            <p id="approvalMessage" style="margin: 10px 0; color: #666;"></p>
+            <div id="approvalActions"></div>
+            <div class="approval-buttons" style="margin-top: 15px;">
+                <button class="btn btn-approve" onclick="handleApproval('approve')">✓ 批准执行</button>
+                <button class="btn btn-reject" onclick="handleApproval('reject')">✗ 拒绝执行</button>
             </div>
         </div>
 
@@ -311,7 +311,60 @@
 
     function showApproval(content) {
         const box = document.getElementById('approvalBox');
-        document.getElementById('approvalContent').textContent = JSON.stringify(content, null, 2);
+        const titleEl = document.getElementById('approvalTitle');
+        const messageEl = document.getElementById('approvalMessage');
+        const actionsEl = document.getElementById('approvalActions');
+        
+        // 设置标题
+        if (content.title) {
+            titleEl.textContent = content.title;
+        }
+        
+        // 设置消息
+        if (content.message) {
+            messageEl.textContent = content.message;
+        }
+        
+        // 格式化显示操作列表
+        if (content.actions && content.actions.length > 0) {
+            let actionsHtml = '<div style="margin-top: 15px;">';
+            
+            content.actions.forEach((action, index) => {
+                const riskColors = {
+                    'low': '#4caf50',
+                    'medium': '#ff9800',
+                    'high': '#f44336'
+                };
+                const riskLabels = {
+                    'low': '低风险',
+                    'medium': '中风险',
+                    'high': '高风险'
+                };
+                
+                const riskColor = riskColors[action.risk_level] || '#666';
+                const riskLabel = riskLabels[action.risk_level] || '未知';
+                
+                actionsHtml += `
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid ${riskColor};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <strong style="font-size: 16px;">${action.tool_name}</strong>
+                            <span style="background: ${riskColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${riskLabel}</span>
+                        </div>
+                        <div style="color: #666; margin-bottom: 8px; white-space: pre-wrap;">${action.description}</div>
+                        ${action.sql ? `
+                        <div style="background: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; overflow-x: auto; border: 1px solid #e0e0e0;">
+                            <strong style="color: #666;">SQL:</strong>
+                            <div style="margin-top: 5px; color: #333;">${action.sql}</div>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            actionsHtml += '</div>';
+            actionsEl.innerHTML = actionsHtml;
+        }
+        
         box.style.display = 'block';
     }
 

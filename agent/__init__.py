@@ -8,14 +8,14 @@ Agent 模块
 from .prompts import (
     SYSTEM_PROMPT,
     FEW_SHOT_EXAMPLES,
-    format_system_prompt,
+    build_system_prompt,
     format_few_shot_examples
 )
 
 __all__ = [
     "SYSTEM_PROMPT",
     "FEW_SHOT_EXAMPLES",
-    "format_system_prompt",
+    "build_system_prompt",
     "format_few_shot_examples",
 
     "AnalystAgentFactory",
