@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 import json
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from utils.chart_sandbox import execute_chart_code, generate_chart_code_from_spec
@@ -28,8 +29,35 @@ class ChartResult(BaseModel):
     error: str = ""
 
 
-# 全局缓存，用于存储生成的图片
+# 全局缓存，用于存储生成的图片（带 TTL 与上限，防止无界增长）
 _chart_cache: Dict[str, str] = {}
+_chart_expiry: Dict[str, float] = {}
+_CHART_TTL_SECONDS = 600  # 10 分钟过期
+_CHART_MAX_ENTRIES = 50
+
+
+def _store_chart(chart_id: str, image_base64: str) -> None:
+    """存储图表，超上限时淘汰最早的条目"""
+    now = time.time()
+    _chart_cache[chart_id] = image_base64
+    _chart_expiry[chart_id] = now + _CHART_TTL_SECONDS
+
+    if len(_chart_cache) > _CHART_MAX_ENTRIES:
+        oldest_id = min(_chart_expiry, key=_chart_expiry.get)
+        _chart_cache.pop(oldest_id, None)
+        _chart_expiry.pop(oldest_id, None)
+
+
+def get_cached_chart(chart_id: str) -> Optional[str]:
+    """从缓存获取图表（过期自动失效并移除）"""
+    expiry = _chart_expiry.get(chart_id)
+    if expiry is None:
+        return None
+    if time.time() > expiry:
+        _chart_cache.pop(chart_id, None)
+        _chart_expiry.pop(chart_id, None)
+        return None
+    return _chart_cache.pop(chart_id, None)
 
 
 def _truncate_base64(base64_str: str, max_length: int = 100) -> str:
@@ -85,8 +113,8 @@ async def create_chart(
         if result_dict["success"]:
             import uuid
             chart_id = str(uuid.uuid4())[:8]
-            _chart_cache[chart_id] = result_dict["image_base64"]
-            
+            _store_chart(chart_id, result_dict["image_base64"])
+
             result = ChartResult(
                 success=True,
                 chart_type=chart_type,
@@ -98,9 +126,9 @@ async def create_chart(
                 success=False,
                 error=result_dict["error"]
             )
-        
+
         return json.dumps(result.model_dump(), ensure_ascii=False)
-        
+
     except Exception as e:
         result = ChartResult(success=False, error=str(e))
         return json.dumps(result.model_dump(), ensure_ascii=False)
@@ -149,8 +177,8 @@ async def create_custom_chart(
         if result_dict["success"]:
             import uuid
             chart_id = str(uuid.uuid4())[:8]
-            _chart_cache[chart_id] = result_dict["image_base64"]
-            
+            _store_chart(chart_id, result_dict["image_base64"])
+
             result = ChartResult(
                 success=True,
                 chart_type="custom",
@@ -170,9 +198,14 @@ async def create_custom_chart(
         return json.dumps(result.model_dump(), ensure_ascii=False)
 
 
-def get_cached_chart(chart_id: str) -> Optional[str]:
-    """从缓存获取图表"""
-    return _chart_cache.pop(chart_id, None)
+def warmup_matplotlib():
+    """预热 matplotlib，建议在启动时调用（从原 viz_tools 迁移而来）"""
+    try:
+        from utils.chart_sandbox import get_safe_globals
+        get_safe_globals([])
+        print("Matplotlib 预热完成")
+    except Exception as e:
+        print(f"Matplotlib 预热失败: {e}")
 
 
-CHART_TOOLS = [create_chart, create_custom_chart]
+CHART_TOOLS = [create_chart]

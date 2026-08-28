@@ -17,6 +17,7 @@ import json
 import time
 
 from core.database import db_pool, schema_manager
+from config.settings import get_settings
 
 
 class QueryResult(BaseModel):
@@ -33,8 +34,9 @@ class QueryResult(BaseModel):
 async def query_database(query: str) -> str:
     """执行 SQL 查询。参数: query - SQL 语句（SELECT/INSERT/UPDATE/DELETE）"""
     start_time = time.time()
+    timeout = get_settings().sql_timeout
     try:
-        rows = await db_pool.fetch(query, timeout=30)
+        rows = await db_pool.fetch(query, timeout=timeout)
         data = [dict(row) for row in rows]
         columns = list(rows[0].keys()) if rows else []
         result = QueryResult(

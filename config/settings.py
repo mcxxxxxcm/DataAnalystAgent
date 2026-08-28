@@ -8,8 +8,8 @@
 4、默认值：为开发环境提供合理的默认值
 """
 
-from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import Optional
 from functools import lru_cache
 import os
@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     redis_url: Optional[str] = Field(default=None, description="Redis连接URL，用于缓存Schema和查询结果")
     cache_ttl: int = Field(default=3600, description="缓存过期时间(S)")
 
+    # === 工具配置 ===
+    enable_custom_chart: bool = Field(
+        default=False,
+        description="是否启用 create_custom_chart（允许LLM生成并执行任意绘图代码，风险较高，默认关闭）"
+    )
+
     # === Agent配置 ===
     max_retry_attempts: int = Field(
         default=3,
@@ -68,6 +74,18 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", description="API服务监听地址")
     api_port: int = Field(default=8080, description="API服务端口")
     api_workers: int = Field(default=1, description="API工作进程数，异步应用建议单worker")
+    api_reload: bool = Field(
+        default=False,
+        description="是否启用 uvicorn 自动重载（仅开发环境建议开启）"
+    )
+    api_auth_token: Optional[str] = Field(
+        default=None,
+        description="可选Bearer Token鉴权。为空则不开启鉴权；生产环境建议设置"
+    )
+    cors_origins: str = Field(
+        default="*",
+        description="允许的CORS来源，逗号分隔，如: http://localhost:3000,https://app.example.com"
+    )
 
     @property
     def db_connection_string(self) -> str:
@@ -89,11 +107,23 @@ class Settings(BaseSettings):
             f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
-    class Config:
-        env_file = str(PROJECT_ROOT / ".env")
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"
+    @property
+    def cors_origin_list(self) -> list:
+        """解析CORS来源列表（逗号分隔）"""
+        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return origins or ["*"]
+
+    @property
+    def is_cors_open(self) -> bool:
+        """CORS是否全放开（包含通配符 * ）"""
+        return "*" in self.cors_origin_list
+
+    model_config = SettingsConfigDict(
+        env_file=str(PROJECT_ROOT / ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 @lru_cache()
 def get_settings() -> Settings:

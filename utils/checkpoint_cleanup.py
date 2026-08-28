@@ -108,9 +108,26 @@ async def cleanup_orphaned_checkpoints(dry_run: bool = False) -> dict:
     }
     
     try:
+        # 孤儿判定需要一张"合法会话"参照表（如 conversations）。
+        # 本应用当前并不创建该表，故先检测其是否存在，避免 LEFT JOIN 报错。
+        conv_exists = await db_pool.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'conversations'
+            )
+            """
+        )
+        if not conv_exists:
+            return {
+                **stats,
+                "skipped": True,
+                "reason": "conversations 表不存在，无法判定孤儿会话，已跳过。"
+            }
+
         # 查找孤立的 thread_id
         orphan_query = """
-        SELECT DISTINCT c.thread_id 
+        SELECT DISTINCT c.thread_id
         FROM checkpoints c
         LEFT JOIN conversations conv ON c.thread_id = conv.thread_id
         WHERE conv.thread_id IS NULL
@@ -118,7 +135,7 @@ async def cleanup_orphaned_checkpoints(dry_run: bool = False) -> dict:
         rows = await db_pool.fetch(orphan_query)
         orphaned_threads = [r["thread_id"] for r in rows]
         stats["orphaned_threads"] = len(orphaned_threads)
-        
+
         if not dry_run and orphaned_threads:
             # 删除孤立的数据
             for thread_id in orphaned_threads:

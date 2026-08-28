@@ -31,6 +31,22 @@ CHART_TOOL_NAMES = {
 }
 
 
+def resolve_chart_image(image_value: str) -> Optional[str]:
+    """
+    解析图表图片标识为真实 base64。
+
+    图片可能以 `chart_id:<id>` 形式存储在缓存中（图片体积大，不直接回传），
+    这里从缓存取出真实图片；若缓存缺失或被淘汰则返回 None。
+    """
+    if not image_value or not isinstance(image_value, str):
+        return None
+    if image_value.startswith('chart_id:'):
+        from tools.chart_tools import get_cached_chart
+        chart_id = image_value.split(':', 1)[1]
+        return get_cached_chart(chart_id)
+    return image_value
+
+
 def format_approval_request(interrupt_data: List[Any], thread_id: str) -> Dict[str, Any]:
     """
     格式化审核请求，使其更友好
@@ -142,65 +158,59 @@ def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
     
     Args:
         messages: Agent 返回的消息列表
-        
+
     Returns:
         图表数据字典或 None
     """
-    from tools.chart_tools import get_cached_chart
-    
     for msg in reversed(messages):
         msg_type = type(msg).__name__
-        
-        if msg_type == 'ToolMessage':
-            try:
-                content = getattr(msg, 'content', '{}')
-                if isinstance(content, str):
-                    tool_result = json.loads(content)
-                else:
-                    tool_result = content if isinstance(content, dict) else {}
-                
+
+        # 从 ToolMessage 的 content 中提取图表
+        try:
+            content = getattr(msg, 'content', '{}')
+            tool_result = None
+            if isinstance(content, str):
+                tool_result = json.loads(content)
+            elif isinstance(content, dict):
+                tool_result = content
+
+            if isinstance(tool_result, dict):
                 image_base64 = tool_result.get('image_base64', '')
                 if image_base64:
-                    # 处理 chart_id 格式
-                    if image_base64.startswith('chart_id:'):
-                        chart_id = image_base64.split(':')[1]
-                        actual_image = get_cached_chart(chart_id)
-                        if actual_image:
-                            tool_result['image_base64'] = actual_image
-                        else:
-                            continue
-                    return tool_result
-            except (json.JSONDecodeError, TypeError):
-                pass
-        
-        msg_name = getattr(msg, 'name', None)
-        if msg_name in CHART_TOOL_NAMES:
-            try:
-                content = getattr(msg, 'content', '{}')
-                if isinstance(content, str):
-                    tool_result = json.loads(content)
-                else:
-                    tool_result = content if isinstance(content, dict) else {}
-                
-                image_base64 = tool_result.get('image_base64', '')
-                if image_base64:
-                    # 处理 chart_id 格式
-                    if image_base64.startswith('chart_id:'):
-                        chart_id = image_base64.split(':')[1]
-                        actual_image = get_cached_chart(chart_id)
-                        if actual_image:
-                            tool_result['image_base64'] = actual_image
-                        else:
-                            continue
-                    return tool_result
-            except (json.JSONDecodeError, TypeError):
-                pass
-        
+                    actual_image = resolve_chart_image(image_base64)
+                    if actual_image:
+                        tool_result['image_base64'] = actual_image
+                        return tool_result
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # 兼容按工具名识别的图表消息（万一 ToolMessage 未命中）
+        if msg_type != 'ToolMessage':
+            msg_name = getattr(msg, 'name', None)
+            if msg_name in CHART_TOOL_NAMES:
+                try:
+                    content = getattr(msg, 'content', '{}')
+                    tool_result = None
+                    if isinstance(content, str):
+                        tool_result = json.loads(content)
+                    elif isinstance(content, dict):
+                        tool_result = content
+
+                    if isinstance(tool_result, dict):
+                        image_base64 = tool_result.get('image_base64', '')
+                        if image_base64:
+                            actual_image = resolve_chart_image(image_base64)
+                            if actual_image:
+                                tool_result['image_base64'] = actual_image
+                                return tool_result
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         artifact = getattr(msg, 'artifact', None)
         if artifact and isinstance(artifact, dict):
             if artifact.get('image_base64'):
                 return artifact
-    
+
     return None
 
 
@@ -210,52 +220,43 @@ def extract_all_chart_data(messages: List[Any]) -> List[Dict[str, Any]]:
     
     Args:
         messages: Agent 返回的消息列表
-        
+
     Returns:
         图表数据列表（已去重）
     """
-    from tools.chart_tools import get_cached_chart
-    
     charts = []
     seen_chart_ids = set()
-    
-    for i, msg in enumerate(messages):
-        msg_type = type(msg).__name__
-        msg_name = getattr(msg, 'name', None)
-        
-        if msg_type == 'ToolMessage':
-            content = getattr(msg, 'content', None)
-            
-            if isinstance(content, str):
-                try:
-                    tool_result = json.loads(content)
-                    if isinstance(tool_result, dict) and tool_result.get('image_base64'):
-                        chart_type = tool_result.get('chart_type', 'unknown')
-                        message = tool_result.get('message', '')
-                        image_base64 = tool_result.get('image_base64', '')
-                        
-                        # 处理 chart_id 格式
-                        if image_base64.startswith('chart_id:'):
-                            chart_id_key = image_base64.split(':')[1]
-                            actual_image = get_cached_chart(chart_id_key)
-                            if actual_image:
-                                tool_result['image_base64'] = actual_image
-                                image_base64 = actual_image
-                            else:
-                                continue
-                        
-                        chart_id = f"{chart_type}_{hashlib.md5((message + image_base64[:50]).encode()).hexdigest()}"
-                        
-                        if chart_id not in seen_chart_ids:
-                            charts.append(tool_result)
-                            seen_chart_ids.add(chart_id)
-                            print(f"[DEBUG] Added chart {len(charts)}: type={chart_type}")
-                        else:
-                            print(f"[DEBUG] Skipped duplicate chart: type={chart_type}")
-                except:
-                    pass
-    
-    print(f"[DEBUG] Total charts found: {len(charts)} (after deduplication)")
+
+    for msg in messages:
+        if type(msg).__name__ != 'ToolMessage':
+            continue
+
+        content = getattr(msg, 'content', None)
+        if not isinstance(content, str):
+            continue
+
+        try:
+            tool_result = json.loads(content)
+            if not isinstance(tool_result, dict) or not tool_result.get('image_base64'):
+                continue
+
+            chart_type = tool_result.get('chart_type', 'unknown')
+            message = tool_result.get('message', '')
+            image_base64 = tool_result.get('image_base64', '')
+
+            actual_image = resolve_chart_image(image_base64)
+            if not actual_image:
+                continue
+            tool_result['image_base64'] = actual_image
+
+            chart_id = f"{chart_type}_{hashlib.md5((message + actual_image[:50]).encode()).hexdigest()}"
+
+            if chart_id not in seen_chart_ids:
+                charts.append(tool_result)
+                seen_chart_ids.add(chart_id)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
     return charts
 
 

@@ -6,6 +6,7 @@
 
 import io
 import base64
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -19,6 +20,9 @@ CHART_STYLES = {
     "figure_size": (8, 5),
     "dpi": 80
 }
+
+# 执行绘图代码的线程池（exec 在子线程中运行，便于真正实施超时）
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_exec_")
 
 
 def get_safe_globals(data: List[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -67,37 +71,62 @@ def execute_chart_code(
 ) -> Dict[str, Any]:
     """
     安全执行绘图代码
-    
+
+    exec 在独立子线程中运行，通过 `timeout` 真正限制执行时长，
+    超时后放弃该线程并返回错误，避免恶意/死循环代码拖垮服务。
+
     参数:
         code: Python 绘图代码
         data: 数据列表
         timeout: 执行超时时间（秒）
-    
+
     返回:
         {"success": bool, "image_base64": str, "error": str}
     """
+    result_box = {}
+
+    def _run():
+        try:
+            fig = plt.figure(figsize=CHART_STYLES["figure_size"], dpi=CHART_STYLES["dpi"])
+            safe_globals = get_safe_globals(data)
+            exec(code, safe_globals)
+
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', dpi=CHART_STYLES["dpi"])
+            buf.seek(0)
+            result_box["image_base64"] = base64.b64encode(buf.read()).decode('utf-8')
+            result_box["success"] = True
+        except Exception as e:
+            result_box["success"] = False
+            result_box["error"] = str(e)
+        finally:
+            plt.close('all')
+
     try:
         plt.close('all')
-        
-        fig = plt.figure(figsize=CHART_STYLES["figure_size"], dpi=CHART_STYLES["dpi"])
-        
-        safe_globals = get_safe_globals(data)
-        
-        exec(code, safe_globals)
-        
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', dpi=CHART_STYLES["dpi"])
-        plt.close('all')
-        
-        buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-        
+        future = _executor.submit(_run)
+        try:
+            future.result(timeout=timeout)
+        except FutureTimeout:
+            plt.close('all')
+            return {
+                "success": False,
+                "image_base64": "",
+                "error": f"绘图代码执行超时（>{timeout}s），已终止"
+            }
+
+        if result_box.get("success"):
+            return {
+                "success": True,
+                "image_base64": result_box.get("image_base64", ""),
+                "error": ""
+            }
         return {
-            "success": True,
-            "image_base64": img_base64,
-            "error": ""
+            "success": False,
+            "image_base64": "",
+            "error": result_box.get("error", "未知错误")
         }
-        
+
     except Exception as e:
         plt.close('all')
         return {

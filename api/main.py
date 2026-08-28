@@ -19,11 +19,13 @@ if sys.platform == 'win32':
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
+import secrets
 
 from config.settings import get_settings, validate_settings
 from core.database import db_pool
@@ -70,7 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     import threading
     def warmup_matplotlib():
         try:
-            from tools.viz_tools import warmup_matplotlib as _warmup
+            from tools.chart_tools import warmup_matplotlib as _warmup
             _warmup()
         except Exception as e:
             print(f"Matplotlib warmup failed: {e}")
@@ -94,19 +96,44 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Data Analyst Agent",
     description="Natural Language Data Analysis Assistant",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
+settings = get_settings()
+
+# CORS：来源可配置。当配置了明确来源时启用凭据；通配符(*)时禁用凭据，避免与 allow_credentials 组合风险
+cors_origins = settings.cors_origin_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=not settings.is_cors_open,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# 可选 Bearer Token 鉴权。未配置 api_auth_token 时不生效（默认放开，便于本地开发）
+_exposed_public_paths = {"/", "/docs", "/redoc", "/openapi.json"}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if settings.api_auth_token and request.url.path not in _exposed_public_paths:
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, provided = authorization.partition(" ")
+        if not (scheme.lower() == "bearer"
+                and provided
+                and secrets.compare_digest(provided, settings.api_auth_token)):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized: 缺少或无效的 Bearer Token"}
+            )
+
+    return await call_next(request)
+
 
 app.include_router(router, prefix="/api")
 
@@ -133,7 +160,7 @@ def main():
         host=settings.api_host,
         port=settings.api_port,
         workers=settings.api_workers,
-        reload=True
+        reload=settings.api_reload
     )
 
 
