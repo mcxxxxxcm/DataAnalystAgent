@@ -13,6 +13,9 @@ secrets.json
 logs/
 *.log
 
+# Exports - 导出文件目录
+exports/
+
 # Python
 __pycache__/
 *.py[cod]

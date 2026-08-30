@@ -11,6 +11,12 @@ from .chart_tools import (
     create_custom_chart,
     CHART_TOOLS
 )
+from .analysis_tools import (
+    statistical_summary,
+    data_profile,
+    export_result,
+    ANALYSIS_TOOLS
+)
 from config.settings import get_settings
 
 # create_custom_chart 允许LLM生成并执行任意绘图代码，风险较高，
@@ -21,7 +27,7 @@ if _settings.enable_custom_chart:
 else:
     CHART_TOOLS = [create_chart]
 
-ALL_TOOLS = SQL_TOOLS + CHART_TOOLS
+ALL_TOOLS = SQL_TOOLS + CHART_TOOLS + ANALYSIS_TOOLS
 
 __all__ = [
     "query_database",
@@ -33,5 +39,9 @@ __all__ = [
     "create_chart",
     "create_custom_chart",
     "CHART_TOOLS",
+    "statistical_summary",
+    "data_profile",
+    "export_result",
+    "ANALYSIS_TOOLS",
     "ALL_TOOLS"
 ]

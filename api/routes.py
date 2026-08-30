@@ -11,7 +11,7 @@ import time
 import hashlib
 from typing import AsyncIterator, Optional, List, Any, Dict
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 import json
 
 from middleware import local_logger
@@ -444,6 +444,26 @@ async def get_state(thread_id: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export/{file_id}")
+async def get_export_file(file_id: str):
+    """
+    下载导出的数据文件
+
+    由 export_result 工具生成，返回附件形式下载
+    """
+    from utils.export_manager import export_manager
+
+    export_file = export_manager.get_export(file_id)
+    if export_file is None:
+        raise HTTPException(status_code=404, detail="导出文件不存在或已过期")
+
+    return FileResponse(
+        path=str(export_file.path),
+        media_type=export_manager.media_type(export_file.format),
+        filename=export_file.filename
+    )
 
 
 @router.get("/health", response_model=HealthResponse)

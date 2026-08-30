@@ -61,6 +61,38 @@ class Settings(BaseSettings):
         description="是否启用 create_custom_chart（允许LLM生成并执行任意绘图代码，风险较高，默认关闭）"
     )
 
+    # === 工具返回载荷裁剪（送入 LLM 前） ===
+    tool_result_max_rows: int = Field(
+        default=20,
+        ge=1,
+        le=1000,
+        description="工具返回 data 保留的最大行数，超出部分裁剪"
+    )
+    tool_result_max_chars_per_cell: int = Field(
+        default=200,
+        ge=1,
+        le=10000,
+        description="工具返回单个单元格允许的最大字符数，超出截断"
+    )
+    tool_result_max_content_len: int = Field(
+        default=8000,
+        ge=100,
+        le=1000000,
+        description="非结构化工具载荷的字符上限"
+    )
+
+    # === 导出配置 ===
+    export_dir: str = Field(
+        default="exports",
+        description="导出文件目录（相对项目根目录）"
+    )
+    export_max_rows: int = Field(
+        default=10000,
+        ge=1,
+        le=100000,
+        description="导出/统计采样最大行数"
+    )
+
     # === Agent配置 ===
     max_retry_attempts: int = Field(
         default=3,

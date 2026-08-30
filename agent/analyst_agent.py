@@ -22,6 +22,7 @@ from middleware import (
     get_checkpointer,
     get_async_checkpointer
 )
+from middleware.truncation import condense_tool_results
 from .prompts import build_system_prompt
 
 
@@ -76,6 +77,22 @@ class AnalystAgentFactory:
         tools = custom_tools or ALL_TOOLS
 
         middleware = get_middleware_list(enable_logging=enable_logging)
+
+        # 压缩工具返回载荷（降 token），同步版不做总量修剪
+        @before_model
+        def condense_tool_results_middleware(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+            messages = state.get("messages", [])
+            condensed = condense_tool_results(messages)
+            if condensed != messages:
+                return {
+                    "messages": [
+                        RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                        *condensed
+                    ]
+                }
+            return None
+
+        middleware.append(condense_tool_results_middleware)
 
         if enable_hitl:
             interrupt_on = get_interrupt_on_config()
@@ -140,18 +157,21 @@ class AnalystAgentFactory:
         # 添加消息裁剪中间件
         @before_model
         async def trim_messages_middleware(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-            """裁剪消息历史，保持在 max_tokens 限制内"""
+            """先压缩工具返回载荷，再裁剪消息历史，保持在 max_tokens 限制内"""
             messages = state.get("messages", [])
-            
+
+            # 第一步：压缩 ToolMessage 载荷，只保留必要字段（降单条 token）
+            messages = condense_tool_results(messages)
+
             print(f"[trim_messages] 当前消息数量: {len(messages)}")
-            
+
             if len(messages) <= 3:
                 print(f"[trim_messages] 消息数量 <= 3，跳过裁剪")
                 return None
-            
+
             before_tokens = count_tokens_approximately(messages)
             print(f"[trim_messages] 裁剪前 token 数: {before_tokens}")
-            
+
             trimmed = trim_messages(
                 messages,
                 strategy="last",
@@ -160,10 +180,10 @@ class AnalystAgentFactory:
                 start_on="human",
                 end_on=("human", "tool"),
             )
-            
+
             after_tokens = count_tokens_approximately(trimmed)
             print(f"[trim_messages] 裁剪后 token 数: {after_tokens}, 消息数: {len(trimmed)}")
-            
+
             return {
                 "messages": [
                     RemoveMessage(id=REMOVE_ALL_MESSAGES),

@@ -5,7 +5,18 @@
       "Bash(python -m pip install pytest -q)",
       "Bash(python -m pip install sqlparse pydantic-settings python-dotenv -q)",
       "Bash(python -c \"from config.settings import get_settings; s=get_settings\\(\\); print\\('model', s.llm_model, '| reload', s.api_reload, '| custom_chart', s.enable_custom_chart, '| cors', s.cors_origin_list\\)\")",
-      "Bash(python -m py_compile config/settings.py api/main.py api/routes.py tools/__init__.py tools/sql_tools.py tools/chart_tools.py utils/chart_sandbox.py utils/checkpoint_cleanup.py agent/prompts.py core/__init__.py)"
+      "Bash(python -m py_compile config/settings.py api/main.py api/routes.py tools/__init__.py tools/sql_tools.py tools/chart_tools.py utils/chart_sandbox.py utils/checkpoint_cleanup.py agent/prompts.py core/__init__.py)",
+      "Read(//d/d/Agent/Data Analyst Agent/**)",
+      "Bash(python -c \"import openpyxl; print\\('openpyxl', openpyxl.__version__\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m pip show langchain)",
+      "Read(//c/Users/86176/**)",
+      "Read(//d/Agent/**)",
+      "Bash(/d/Agent/.venv/Scripts/python.exe -c \"import langchain; print\\('langchain ok'\\)\")",
+      "Bash(/d/Agent/.venv/Scripts/python.exe -c \"import openpyxl, pandas; print\\('openpyxl+pandas ok'\\)\")",
+      "Bash(python -m py_compile config/settings.py tools/__init__.py tools/analysis_tools.py utils/export_manager.py middleware/truncation.py agent/analyst_agent.py api/routes.py)",
+      "Bash(/d/Agent/智能客服/.venv/Scripts/python.exe -c ' *)",
+      "Bash(/d/Agent/智能客服/.venv/Scripts/python.exe -m pytest tests/test_truncation.py -v)"
     ]
   }
 }
