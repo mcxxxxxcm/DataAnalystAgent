@@ -16,7 +16,17 @@
       "Bash(/d/Agent/.venv/Scripts/python.exe -c \"import openpyxl, pandas; print\\('openpyxl+pandas ok'\\)\")",
       "Bash(python -m py_compile config/settings.py tools/__init__.py tools/analysis_tools.py utils/export_manager.py middleware/truncation.py agent/analyst_agent.py api/routes.py)",
       "Bash(/d/Agent/智能客服/.venv/Scripts/python.exe -c ' *)",
-      "Bash(/d/Agent/智能客服/.venv/Scripts/python.exe -m pytest tests/test_truncation.py -v)"
+      "Bash(/d/Agent/智能客服/.venv/Scripts/python.exe -m pytest tests/test_truncation.py -v)",
+      "Bash(python -c \"import ast,sys; [ast.parse\\(open\\(f\\).read\\(\\), f\\) for f in ['tools/result_schemas.py','tools/sql_tools.py','tools/chart_tools.py','tools/analysis_tools.py']]; print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\), f\\) for f in ['tools/result_schemas.py','tools/sql_tools.py','tools/chart_tools.py','tools/analysis_tools.py']]; print\\('syntax OK'\\)\")",
+      "Bash(API_KEY=test python -c \"from config.settings import get_settings; s=get_settings\\(\\); print\\('model', s.llm_model\\)\")",
+      "Bash(API_KEY=test python -c \"from tools import ALL_TOOLS; print\\('ALL_TOOLS len', len\\(ALL_TOOLS\\)\\); print\\([t.name for t in ALL_TOOLS]\\)\")",
+      "Bash(python -c \"import importlib.util as u; print\\('asyncpg', bool\\(u.find_spec\\('asyncpg'\\)\\)\\); print\\('langchain_core', bool\\(u.find_spec\\('langchain_core'\\)\\)\\); print\\('pydantic', bool\\(u.find_spec\\('pydantic'\\)\\)\\); print\\('pandas', bool\\(u.find_spec\\('pandas'\\)\\)\\); print\\('langgraph', bool\\(u.find_spec\\('langgraph'\\)\\)\\)\")",
+      "Bash(python -c \"import middleware.truncation; print\\('truncation import OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\), f\\) for f in ['api/routes.py','middleware/truncation.py','tools/result_schemas.py']]; print\\('syntax OK'\\)\")",
+      "Bash(python _tmp_validate_rs.py)",
+      "Bash(API_KEY=test python -m pytest tests/test_result_schemas.py -q)",
+      "Bash(API_KEY=test python -m pytest tests/test_truncation.py -q)"
     ]
   }
 }

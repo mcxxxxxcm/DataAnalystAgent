@@ -16,6 +16,7 @@ import json
 
 from middleware import local_logger
 from core.database import db_pool
+from tools.result_schemas import parse_tool_result
 from .schemas import (
     QueryRequest, QueryResponse,
     ApprovalRequest, ApprovalResponse,
@@ -164,47 +165,23 @@ def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
     """
     for msg in reversed(messages):
         msg_type = type(msg).__name__
+        tool_result = parse_tool_result(getattr(msg, 'content', None))
 
-        # 从 ToolMessage 的 content 中提取图表
-        try:
-            content = getattr(msg, 'content', '{}')
-            tool_result = None
-            if isinstance(content, str):
-                tool_result = json.loads(content)
-            elif isinstance(content, dict):
-                tool_result = content
-
-            if isinstance(tool_result, dict):
-                image_base64 = tool_result.get('image_base64', '')
-                if image_base64:
-                    actual_image = resolve_chart_image(image_base64)
-                    if actual_image:
-                        tool_result['image_base64'] = actual_image
-                        return tool_result
-        except (json.JSONDecodeError, TypeError):
-            pass
+        # 从 ToolMessage 的 content 中提取图表（统一经 parse_tool_result 解析）
+        if msg_type == 'ToolMessage' and tool_result and tool_result.get('image_base64'):
+            actual_image = resolve_chart_image(tool_result['image_base64'])
+            if actual_image:
+                tool_result['image_base64'] = actual_image
+                return tool_result
 
         # 兼容按工具名识别的图表消息（万一 ToolMessage 未命中）
         if msg_type != 'ToolMessage':
             msg_name = getattr(msg, 'name', None)
-            if msg_name in CHART_TOOL_NAMES:
-                try:
-                    content = getattr(msg, 'content', '{}')
-                    tool_result = None
-                    if isinstance(content, str):
-                        tool_result = json.loads(content)
-                    elif isinstance(content, dict):
-                        tool_result = content
-
-                    if isinstance(tool_result, dict):
-                        image_base64 = tool_result.get('image_base64', '')
-                        if image_base64:
-                            actual_image = resolve_chart_image(image_base64)
-                            if actual_image:
-                                tool_result['image_base64'] = actual_image
-                                return tool_result
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            if msg_name in CHART_TOOL_NAMES and tool_result and tool_result.get('image_base64'):
+                actual_image = resolve_chart_image(tool_result['image_base64'])
+                if actual_image:
+                    tool_result['image_base64'] = actual_image
+                    return tool_result
 
         artifact = getattr(msg, 'artifact', None)
         if artifact and isinstance(artifact, dict):
@@ -231,31 +208,24 @@ def extract_all_chart_data(messages: List[Any]) -> List[Dict[str, Any]]:
         if type(msg).__name__ != 'ToolMessage':
             continue
 
-        content = getattr(msg, 'content', None)
-        if not isinstance(content, str):
+        tool_result = parse_tool_result(getattr(msg, 'content', None))
+        if not (tool_result and tool_result.get('image_base64')):
             continue
 
-        try:
-            tool_result = json.loads(content)
-            if not isinstance(tool_result, dict) or not tool_result.get('image_base64'):
-                continue
+        chart_type = tool_result.get('chart_type', 'unknown')
+        message = tool_result.get('message', '')
+        image_base64 = tool_result.get('image_base64', '')
 
-            chart_type = tool_result.get('chart_type', 'unknown')
-            message = tool_result.get('message', '')
-            image_base64 = tool_result.get('image_base64', '')
-
-            actual_image = resolve_chart_image(image_base64)
-            if not actual_image:
-                continue
-            tool_result['image_base64'] = actual_image
-
-            chart_id = f"{chart_type}_{hashlib.md5((message + actual_image[:50]).encode()).hexdigest()}"
-
-            if chart_id not in seen_chart_ids:
-                charts.append(tool_result)
-                seen_chart_ids.add(chart_id)
-        except (json.JSONDecodeError, TypeError):
+        actual_image = resolve_chart_image(image_base64)
+        if not actual_image:
             continue
+        tool_result['image_base64'] = actual_image
+
+        chart_id = f"{chart_type}_{hashlib.md5((message + actual_image[:50]).encode()).hexdigest()}"
+
+        if chart_id not in seen_chart_ids:
+            charts.append(tool_result)
+            seen_chart_ids.add(chart_id)
 
     return charts
 

@@ -19,10 +19,17 @@ from typing import Dict, Any
 from langchain_core.messages import ToolMessage
 
 # 压缩后仍需保留的顶层字段
-_KEEP_FIELDS = {
-    "success", "row_count", "columns", "error", "execution_time",
-    "chart_type", "message", "chart_id", "table", "image_base64",
-}
+# 由 tools.result_schemas 的返回模型字段并集驱动（单一事实来源），
+# 延迟加载以免模块导入时牵引整个 tools/DB 栈（本模块保持轻量、可单测）。
+_KEEP_FIELDS: set[str] | None = None
+
+
+def _keep_fields() -> set[str]:
+    global _KEEP_FIELDS
+    if _KEEP_FIELDS is None:
+        from tools.result_schemas import RESULT_KEEP_FIELDS
+        _KEEP_FIELDS = RESULT_KEEP_FIELDS
+    return _KEEP_FIELDS
 
 
 def truncation_settings():
@@ -74,7 +81,7 @@ def condense_tool_result(content: str, max_rows: int = 20,
     keep = rows[:max_rows]
     truncated_n = total_rows - len(keep)
 
-    condensed = {k: v for k, v in payload.items() if k in _KEEP_FIELDS}
+    condensed = {k: v for k, v in payload.items() if k in _keep_fields()}
     # 关键字段始终保留但单格长度受限
     for k in list(condensed.keys()):
         condensed[k] = _truncate_cell(condensed[k], max_chars_per_cell)

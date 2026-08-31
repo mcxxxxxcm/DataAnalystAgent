@@ -8,25 +8,14 @@
 
 from langchain_core.tools import tool
 from typing import List, Dict, Any, Optional, Literal
-from pydantic import BaseModel, Field
-import json
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 from utils.chart_sandbox import execute_chart_code, generate_chart_code_from_spec
-
+from tools.result_schemas import ChartResult, dump_result
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_")
-
-
-class ChartResult(BaseModel):
-    """图表结果"""
-    success: bool
-    chart_type: str = ""
-    image_base64: str = ""
-    message: str = ""
-    error: str = ""
 
 
 # 全局缓存，用于存储生成的图片（带 TTL 与上限，防止无界增长）
@@ -90,7 +79,7 @@ async def create_chart(
     """
     if not data:
         result = ChartResult(success=False, error="数据为空")
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
     
     if len(data) > 100:
         data = data[:100]
@@ -127,11 +116,11 @@ async def create_chart(
                 error=result_dict["error"]
             )
 
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
 
     except Exception as e:
         result = ChartResult(success=False, error=str(e))
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
 
 
 @tool
@@ -161,7 +150,7 @@ async def create_custom_chart(
     """
     if not code:
         result = ChartResult(success=False, error="代码为空")
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
     
     if len(data) > 100:
         data = data[:100]
@@ -191,11 +180,11 @@ async def create_custom_chart(
                 error=result_dict["error"]
             )
         
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
         
     except Exception as e:
         result = ChartResult(success=False, error=str(e))
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
 
 
 def warmup_matplotlib():

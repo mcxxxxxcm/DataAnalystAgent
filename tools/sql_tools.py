@@ -11,23 +11,12 @@ SQL查询工具
 """
 
 from langchain_core.tools import tool
-from typing import List, Dict, Any
-from pydantic import BaseModel, Field
 import json
 import time
 
 from core.database import db_pool, schema_manager
 from config.settings import get_settings
-
-
-class QueryResult(BaseModel):
-    """查询结果"""
-    success: bool
-    data: List[Dict[str, Any]] = []
-    row_count: int = 0
-    columns: List[str] = []
-    error: str = ""
-    execution_time: float = 0.0
+from tools.result_schemas import QueryResult, dump_result
 
 
 @tool
@@ -43,10 +32,10 @@ async def query_database(query: str) -> str:
             success=True, data=data, row_count=len(data),
             columns=columns, execution_time=time.time() - start_time
         )
-        return json.dumps(result.model_dump(), ensure_ascii=False, default=str)
+        return dump_result(result)
     except Exception as e:
         result = QueryResult(success=False, error=str(e), execution_time=time.time() - start_time)
-        return json.dumps(result.model_dump(), ensure_ascii=False)
+        return dump_result(result)
 
 
 @tool

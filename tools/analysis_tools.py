@@ -11,7 +11,6 @@
 """
 
 import asyncio
-import json
 import time
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +21,9 @@ from langchain_core.tools import tool
 from core.database import db_pool, schema_manager
 from config.settings import get_settings
 from utils.export_manager import export_manager
+from tools.result_schemas import (
+    StatisticalSummaryResult, DataProfileResult, ExportResult, dump_result,
+)
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis_")
 
@@ -49,10 +51,6 @@ async def _fetch_table(table_name: str) -> pd.DataFrame:
     cap = min(settings.sql_max_rows, settings.export_max_rows)
     rows = await db_pool.fetch(f"SELECT * FROM {table_name} LIMIT {cap}")
     return pd.DataFrame([dict(r) for r in rows])
-
-
-def _to_json(obj) -> str:
-    return json.dumps(obj, ensure_ascii=False, default=str)
 
 
 def _serialize(value):
@@ -86,7 +84,9 @@ async def statistical_summary(table_name: str, columns: list = None) -> str:
         table = await _resolve_table(table_name)
         df = await _fetch_table(table)
         if df.empty:
-            return _to_json({"success": True, "table": table, "columns": {}, "row_count_sampled": 0, "note": "表为空"})
+            return dump_result(StatisticalSummaryResult(
+                success=True, table=table, row_count_sampled=0, note="表为空"
+            ))
 
         cols = columns if columns else list(df.columns)
         cols = [c for c in cols if c in df.columns]
@@ -124,15 +124,15 @@ async def statistical_summary(table_name: str, columns: list = None) -> str:
 
         loop = asyncio.get_event_loop()
         stats = await loop.run_in_executor(_executor, _compute)
-        return _to_json({
-            "success": True,
-            "table": table,
-            "row_count_sampled": len(df),
-            "columns": stats,
-            "execution_time": round(time.time() - start, 3),
-        })
+        return dump_result(StatisticalSummaryResult(
+            success=True,
+            table=table,
+            row_count_sampled=len(df),
+            columns=stats,
+            execution_time=round(time.time() - start, 3),
+        ))
     except Exception as e:
-        return _to_json({"success": False, "error": str(e)})
+        return dump_result(StatisticalSummaryResult(success=False, error=str(e)))
 
 
 @tool
@@ -148,7 +148,9 @@ async def data_profile(table_name: str) -> str:
         table = await _resolve_table(table_name)
         df = await _fetch_table(table)
         if df.empty:
-            return _to_json({"success": True, "table": table, "row_count": 0, "duplicate_ratio": 0.0, "columns": {}})
+            return dump_result(DataProfileResult(
+                success=True, table=table, row_count=0, duplicate_ratio=0.0,
+            ))
 
         def _build():
             total = len(df)
@@ -181,16 +183,16 @@ async def data_profile(table_name: str) -> str:
 
         loop = asyncio.get_event_loop()
         total, dup_ratio, profile = await loop.run_in_executor(_executor, _build)
-        return _to_json({
-            "success": True,
-            "table": table,
-            "row_count": total,
-            "duplicate_ratio": dup_ratio,
-            "columns": profile,
-            "execution_time": round(time.time() - start, 3),
-        })
+        return dump_result(DataProfileResult(
+            success=True,
+            table=table,
+            row_count=total,
+            duplicate_ratio=dup_ratio,
+            columns=profile,
+            execution_time=round(time.time() - start, 3),
+        ))
     except Exception as e:
-        return _to_json({"success": False, "error": str(e)})
+        return dump_result(DataProfileResult(success=False, error=str(e)))
 
 
 @tool
@@ -206,13 +208,15 @@ async def export_result(query: str, file_format: str = "csv", filename: str = No
     start = time.time()
     try:
         if file_format not in ("csv", "xlsx"):
-            return _to_json({"success": False, "error": "file_format 仅支持 csv 或 xlsx"})
+            return dump_result(ExportResult(success=False, error="file_format 仅支持 csv 或 xlsx"))
 
         from core.security import sql_validator, sql_sanitizer
 
         validation = sql_validator.validate(query)
         if not validation.is_valid:
-            return _to_json({"success": False, "error": f"SQL 校验失败: {validation.error_message}"})
+            return dump_result(ExportResult(
+                success=False, error=f"SQL 校验失败: {validation.error_message}"
+            ))
 
         sanitized = sql_sanitizer.sanitize(query)
         final_sql = sanitized.sanitized_sql
@@ -221,16 +225,16 @@ async def export_result(query: str, file_format: str = "csv", filename: str = No
         df = pd.DataFrame([dict(r) for r in rows])
 
         export_file = export_manager.save_dataframe(df, file_format, filename)
-        return _to_json({
-            "success": True,
-            "file_id": export_file.file_id,
-            "filename": export_file.filename,
-            "row_count": len(df),
-            "download_url": f"/api/export/{export_file.file_id}",
-            "execution_time": round(time.time() - start, 3),
-        })
+        return dump_result(ExportResult(
+            success=True,
+            file_id=export_file.file_id,
+            filename=export_file.filename,
+            row_count=len(df),
+            download_url=f"/api/export/{export_file.file_id}",
+            execution_time=round(time.time() - start, 3),
+        ))
     except Exception as e:
-        return _to_json({"success": False, "error": str(e)})
+        return dump_result(ExportResult(success=False, error=str(e)))
 
 
 ANALYSIS_TOOLS = [
