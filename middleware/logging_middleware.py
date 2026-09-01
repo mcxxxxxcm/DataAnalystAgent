@@ -96,7 +96,8 @@ class LocalLogger:
         )
         self.logger.addHandler(file_handler)
 
-        # 文件处理器 - 工具调用日志（单独存储）
+        # 独立的 JSONL 日志记录器（仅输出原始 JSON，走 RotatingFileHandler 轮转，
+        # 避免手动 open() 追加导致 tool_calls.jsonl 无限增长占满磁盘）
         tool_log_file = self.log_dir / "tool_calls.jsonl"
         self.tool_log_handler = RotatingFileHandler(
             tool_log_file,
@@ -104,7 +105,13 @@ class LocalLogger:
             backupCount=backup_count,
             encoding='utf-8'
         )
-        self.logger.addHandler(self.tool_log_handler)
+        self.tool_log_handler.setFormatter(logging.Formatter('%(message)s'))
+
+        self._json_logger = logging.getLogger("DataAnalystAgent.jsonl")
+        self._json_logger.setLevel(logging.INFO)
+        self._json_logger.propagate = False  # 不冒泡到主 logger，避免重复/混写
+        self._json_logger.handlers.clear()
+        self._json_logger.addHandler(self.tool_log_handler)
 
         # 控制台处理器（开发环境）
         console_handler = logging.StreamHandler()
@@ -183,10 +190,9 @@ class LocalLogger:
             error=error
         )
 
-        # 写入日志文件（JSONL格式，每行一个JSON）
-        tool_log_path = self.log_dir / "tool_calls.jsonl"
-        with open(tool_log_path, 'a', encoding='utf-8') as f:
-            f.write(record.to_json() + '\n')
+        # 写入日志文件（JSONL格式，每行一个JSON），经 RotatingFileHandler 轮转，
+        # 防止 tool_calls.jsonl 无限增长
+        self._json_logger.info(record.to_json())
 
         # 记录到主日志
         status = "成功" if success else "失败"
