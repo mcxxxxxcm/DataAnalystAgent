@@ -15,7 +15,7 @@ from langchain.messages import RemoveMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from config.settings import get_settings
-from tools import ALL_TOOLS
+from tools import get_enabled_tools
 from middleware import (
     get_middleware_list,
     get_interrupt_on_config,
@@ -44,6 +44,7 @@ class AnalystAgentFactory:
             name: str = "data-analyst",
             custom_system_prompt: Optional[str] = None,
             custom_tools: Optional[List] = None,
+            tool_scope: Optional[str] = None,
             enable_hitl: bool = True,
             enable_logging: bool = True,
             checkpointer: Optional[Any] = None
@@ -54,7 +55,8 @@ class AnalystAgentFactory:
         参数：
             name: Agent名称
             custom_system_prompt: 自定义系统提示词
-            custom_tools: 自定义工具列表
+            custom_tools: 自定义工具列表（优先于 tool_scope）
+            tool_scope: 工具范围 full/read_only/query_only（未传时取配置 default_tool_scope）
             enable_hitl: 是否启用Human-in-the-Loop
             enable_logging: 是否启用日志
             checkpointer: 自定义checkpointer
@@ -74,7 +76,7 @@ class AnalystAgentFactory:
             custom_instructions="请用中文回复用户"
         )
 
-        tools = custom_tools or ALL_TOOLS
+        tools = custom_tools or get_enabled_tools(tool_scope or self.settings.default_tool_scope)
 
         middleware = get_middleware_list(enable_logging=enable_logging)
 
@@ -117,6 +119,7 @@ class AnalystAgentFactory:
             name: str = "data-analyst",
             custom_system_prompt: Optional[str] = None,
             custom_tools: Optional[List] = None,
+            tool_scope: Optional[str] = None,
             enable_hitl: bool = True,
             enable_logging: bool = True,
             checkpointer: Optional[Any] = None
@@ -130,7 +133,8 @@ class AnalystAgentFactory:
         参数：
             name: Agent名称
             custom_system_prompt: 自定义系统提示词
-            custom_tools: 自定义工具列表
+            custom_tools: 自定义工具列表（优先于 tool_scope）
+            tool_scope: 工具范围 full/read_only/query_only（未传时取配置 default_tool_scope）
             enable_hitl: 是否启用Human-in-the-Loop
             enable_logging: 是否启用日志
             checkpointer: 自定义checkpointer
@@ -150,7 +154,7 @@ class AnalystAgentFactory:
             custom_instructions="请用中文回复用户"
         )
 
-        tools = custom_tools or ALL_TOOLS
+        tools = custom_tools or get_enabled_tools(tool_scope or self.settings.default_tool_scope)
 
         middleware = get_middleware_list(enable_logging=enable_logging)
 

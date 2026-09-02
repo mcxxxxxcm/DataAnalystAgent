@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         default=False,
         description="是否启用 create_custom_chart（允许LLM生成并执行任意绘图代码，风险较高，默认关闭）"
     )
+    default_tool_scope: str = Field(
+        default="full",
+        description="默认工具范围: full / read_only / query_only。full=全部；read_only=排除导出与自定义绘图；query_only=仅SQL查询工具"
+    )
 
     # === 工具返回载荷裁剪（送入 LLM 前） ===
     tool_result_max_rows: int = Field(

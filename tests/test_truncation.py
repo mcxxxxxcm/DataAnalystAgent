@@ -79,7 +79,11 @@ def test_error_and_empty_states(n_bytes, n_rows):
     """错误载荷（error 字段）与边界行数不触发异常"""
     from middleware.truncation import condense_tool_result
     err = json.dumps({"success": False, "error": "x" * n_bytes})
-    assert json.loads(condense_tool_result(err))["error"].startswith("x")
+    parsed_error = json.loads(condense_tool_result(err))["error"]
+    if n_bytes:
+        assert parsed_error.startswith("x")
+    else:
+        assert parsed_error == ""
     ok = json.loads(condense_tool_result(make_payload(n_rows=n_rows)))
     assert len(ok["data"]) == n_rows
 

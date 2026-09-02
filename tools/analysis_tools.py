@@ -12,7 +12,6 @@
 
 import asyncio
 import time
-import re
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
@@ -24,29 +23,13 @@ from utils.export_manager import export_manager
 from tools.result_schemas import (
     StatisticalSummaryResult, DataProfileResult, ExportResult, dump_result,
 )
+from tools.boundaries import is_allowed_table
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis_")
 
-# 合法标识符：字母/数字/下划线，防止表名列名注入
-_IDENTIFIER_RE = re.compile(r'^[A-Za-z0-9_]+$')
-
-
-async def _resolve_table(table_name: str) -> str:
-    """
-    校验表名在白名单内并返回规范化表名。
-
-    抛 ValueError 表示表不存在或表名非法。
-    """
-    if not table_name or not _IDENTIFIER_RE.match(table_name):
-        raise ValueError(f"非法表名: {table_name!r}")
-    tables = await schema_manager.list_tables()
-    if table_name not in tables:
-        raise ValueError(f"表不存在: {table_name}，可用表: {sorted(tables)}")
-    return table_name
-
 
 async def _fetch_table(table_name: str) -> pd.DataFrame:
-    """读取表数据（按采样上限），返回 DataFrame"""
+    """读取表数据（按采样上限），返回 DataFrame；表名仅由 targets 白名单导出。"""
     settings = get_settings()
     cap = min(settings.sql_max_rows, settings.export_max_rows)
     rows = await db_pool.fetch(f"SELECT * FROM {table_name} LIMIT {cap}")
@@ -81,7 +64,7 @@ async def statistical_summary(table_name: str, columns: list = None) -> str:
     """
     start = time.time()
     try:
-        table = await _resolve_table(table_name)
+        table = await is_allowed_table(table_name)
         df = await _fetch_table(table)
         if df.empty:
             return dump_result(StatisticalSummaryResult(
@@ -145,7 +128,7 @@ async def data_profile(table_name: str) -> str:
     """
     start = time.time()
     try:
-        table = await _resolve_table(table_name)
+        table = await is_allowed_table(table_name)
         df = await _fetch_table(table)
         if df.empty:
             return dump_result(DataProfileResult(
@@ -210,7 +193,9 @@ async def export_result(query: str, file_format: str = "csv", filename: str = No
         if file_format not in ("csv", "xlsx"):
             return dump_result(ExportResult(success=False, error="file_format 仅支持 csv 或 xlsx"))
 
-        from core.security import sql_validator, sql_sanitizer
+        # 从子模块导入实例（core.security 包名的懒加载实例会被子模块遮蔽）
+        from core.security.sql_validator import sql_validator
+        from core.security.sql_sanitizer import sql_sanitizer
 
         validation = sql_validator.validate(query)
         if not validation.is_valid:

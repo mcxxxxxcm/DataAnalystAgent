@@ -26,7 +26,15 @@
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\), f\\) for f in ['api/routes.py','middleware/truncation.py','tools/result_schemas.py']]; print\\('syntax OK'\\)\")",
       "Bash(python _tmp_validate_rs.py)",
       "Bash(API_KEY=test python -m pytest tests/test_result_schemas.py -q)",
-      "Bash(API_KEY=test python -m pytest tests/test_truncation.py -q)"
+      "Bash(API_KEY=test python -m pytest tests/test_truncation.py -q)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\)\\) for f in ['tools/boundaries.py','tools/sql_tools.py','tools/analysis_tools.py','tools/__init__.py','config/settings.py','agent/analyst_agent.py']]; print\\('parse OK'\\)\")",
+      "Bash(python -c \"import pytest_asyncio; print\\('pytest_asyncio', pytest_asyncio.__version__\\)\")",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(pip install *)",
+      "Bash(grep -iE \"enable_sql_write|sql_max_rows|default_tool_scope|enable_custom\" .env)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(API_KEY=x python -m pytest tests/test_tool_boundaries.py -q)",
+      "Bash(API_KEY=x python -m pytest tests/ -q)"
     ]
   }
 }
