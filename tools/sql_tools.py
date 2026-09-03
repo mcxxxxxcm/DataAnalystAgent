@@ -18,6 +18,7 @@ from core.database import db_pool, schema_manager
 from config.settings import get_settings
 from tools.result_schemas import QueryResult, dump_result
 from tools.boundaries import guard_query_sql, is_allowed_table
+from core.security.sql_error import build_self_correction_message
 
 # SELECT 类查询返回上限，建议 LLM 用 LIMIT 缩小范围，超出部分截断
 _SELECT_HARD_CAP = get_settings().sql_max_rows
@@ -47,7 +48,9 @@ async def query_database(query: str) -> str:
         )
         return dump_result(result)
     except Exception as e:
-        result = QueryResult(success=False, error=str(e), execution_time=time.time() - start_time)
+        # 用自纠友好的错误信息（分类 + 修复建议）替代裸报错字符串，回喂给 LLM 驱动重试
+        result = QueryResult(success=False, error=build_self_correction_message(str(e)),
+                             execution_time=time.time() - start_time)
         return dump_result(result)
 
 

@@ -30,6 +30,37 @@ class QueryResult(BaseModel):
     error: str = ""
     execution_time: float = 0.0
 
+    def to_markdown(self, max_rows: int = 100, max_cell_chars: int = 100) -> str:
+        """
+        转换为 GitHub 风格管道表格（Markdown）。
+
+        - 基于 columns + data 生成；单元格转义 | 与换行，超长截断加 …。
+        - 无列或失败时不生成表格（返回空串），由调用方决定如何展示。
+        """
+        columns = self.columns or ([k for row in self.data for k in row] or [])
+
+        def _cell(v: Any) -> str:
+            if v is None:
+                return "NULL"
+            text = str(v).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+            if len(text) > max_cell_chars:
+                text = text[: max_cell_chars - 1] + "…"
+            return text
+
+        header = "| " + " | ".join(columns) + " |"
+        divider = "| " + " | ".join(["---"] * len(columns)) + " |"
+        rows = []
+        for row in self.data[:max_rows]:
+            cells = [_cell(row.get(c)) for c in columns]
+            rows.append("| " + " | ".join(cells) + " |")
+
+        if columns and not rows:
+            return header + "\n" + divider + "\n" + "| " + " | ".join(["_（空）_"] * len(columns)) + " |"
+        if not rows:
+            return header + "\n" + divider if columns else ""
+
+        return "\n".join([header, divider, *rows])
+
 
 class ChartResult(BaseModel):
     """图表生成结果"""

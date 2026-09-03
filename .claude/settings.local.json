@@ -34,7 +34,9 @@
       "Bash(grep -iE \"enable_sql_write|sql_max_rows|default_tool_scope|enable_custom\" .env)",
       "Bash(echo \"exit: $?\")",
       "Bash(API_KEY=x python -m pytest tests/test_tool_boundaries.py -q)",
-      "Bash(API_KEY=x python -m pytest tests/ -q)"
+      "Bash(API_KEY=x python -m pytest tests/ -q)",
+      "WebSearch",
+      "Bash(python -m pytest tests/test_result_schemas.py tests/test_sql_error.py tests/test_security.py tests/test_tool_boundaries.py tests/test_truncation.py -q)"
     ]
   }
 }

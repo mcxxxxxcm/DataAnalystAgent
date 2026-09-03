@@ -67,6 +67,10 @@ class QueryResponse(BaseModel):
         default=None,
         description="查询结果数据"
     )
+    markdown: Optional[str] = Field(
+        default=None,
+        description="查询结果的 Markdown 管道表格"
+    )
     sql: Optional[str] = Field(
         default=None,
         description="执行的SQL语句"

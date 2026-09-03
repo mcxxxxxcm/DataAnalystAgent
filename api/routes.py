@@ -16,7 +16,7 @@ import json
 
 from middleware import local_logger
 from core.database import db_pool
-from tools.result_schemas import parse_tool_result
+from tools.result_schemas import parse_tool_result, QueryResult
 from .schemas import (
     QueryRequest, QueryResponse,
     ApprovalRequest, ApprovalResponse,
@@ -151,6 +151,24 @@ def _generate_friendly_description(tool_name: str, args: Dict, original_desc: st
     
     else:
         return original_desc[:200] if original_desc else f"执行 {tool_name}"
+
+
+def extract_query_result(messages: List[Any]) -> Optional[Dict[str, Any]]:
+    """
+    从消息列表中提取最后一个成功执行的 query_database 结果。
+
+    返回 QueryResult 的 model_dump（含 data/columns/row_count/sql 语义），
+    供 /query 组装 data + markdown 表格。无命中返回 None。
+    """
+    for msg in reversed(messages):
+        if type(msg).__name__ != 'ToolMessage':
+            continue
+        if getattr(msg, 'name', None) != 'query_database':
+            continue
+        tool_result = parse_tool_result(getattr(msg, 'content', None))
+        if tool_result and tool_result.get('success') is True:
+            return tool_result
+    return None
 
 
 def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
@@ -307,14 +325,22 @@ async def query(request: QueryRequest):
         last_message = messages[-1] if messages else None
 
         chart_data = extract_chart_data(messages)
+        query_result = extract_query_result(messages)
 
-        return QueryResponse(
+        response = dict(
             success=True,
             thread_id=thread_id,
             message=last_message.content if last_message else None,
             chart_data=chart_data,
             execution_time_ms=(time.time() - start_time) * 1000
         )
+
+        # 附带最后一个成功查询的结构化结果：原始 data + markdown 表格
+        if query_result:
+            response["data"] = query_result.get("data")
+            response["markdown"] = QueryResult(**query_result).to_markdown()
+
+        return QueryResponse(**response)
 
     except Exception as e:
         return QueryResponse(

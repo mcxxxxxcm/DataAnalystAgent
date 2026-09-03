@@ -74,6 +74,48 @@ def test_parse_plain_string_returns_none():
     assert parse_tool_result("你好，这是一句回答") is None
 
 
+# ==================== QueryResult.to_markdown ====================
+
+def test_to_markdown_basic():
+    qr = QueryResult(success=True, data=[
+        {"region": "华东", "revenue": 100},
+        {"region": "华南", "revenue": 200},
+    ], row_count=2, columns=["region", "revenue"])
+    md = qr.to_markdown()
+    lines = md.split("\n")
+    assert lines[0] == "| region | revenue |"
+    assert lines[1] == "| --- | --- |"
+    assert "| 华东 | 100 |" in lines
+    assert "| 华南 | 200 |" in lines
+
+
+def test_to_markdown_escapes_pipe_and_truncates():
+    qr = QueryResult(success=True, data=[{"name": "a|b\nc", "v": "x" * 200}],
+                     row_count=1, columns=["name", "v"])
+    md = qr.to_markdown(max_cell_chars=20)
+    # 竖线被转义、换行被折叠、超长被截断加 …
+    assert "a\\|b c" in md
+    assert "…" in md
+
+
+def test_to_markdown_empty_data():
+    qr = QueryResult(success=True, data=[], row_count=0, columns=["region"])
+    md = qr.to_markdown()
+    assert md.startswith("| region |")
+    assert "_（空）_" in md
+
+
+def test_to_markdown_no_columns_returns_empty():
+    qr = QueryResult(success=True, data=[], row_count=0, columns=[])
+    assert qr.to_markdown() == ""
+
+
+def test_to_markdown_infers_columns_from_data():
+    qr = QueryResult(success=True, data=[{"a": 1, "b": 2}], row_count=1, columns=[])
+    md = qr.to_markdown()
+    assert md.startswith("| a | b |")
+
+
 # ==================== 注册表 / KEEP_FIELDS ====================
 
 def test_reserved_tool_models_registered():

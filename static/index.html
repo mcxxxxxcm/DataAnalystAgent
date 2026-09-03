@@ -423,6 +423,8 @@
                 // 优先显示图表
                 if (data.chart_data && data.chart_data.image_base64) {
                     showChart(data.chart_data);
+                } else if (data.markdown) {
+                    showResultWithTable(data.message, data.markdown);
                 } else {
                     showResult(data.message || JSON.stringify(data, null, 2));
                 }
@@ -527,6 +529,47 @@
         }
 
         resultArea.textContent = content;
+    }
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // 把 GitHub 风格管道表格转成 HTML <table>（本项目 /query 返回的 markdown 字段）
+    function pipeTableToHtml(markdown) {
+        const lines = String(markdown).trim().split('\n').filter(Boolean);
+        if (lines.length < 2) {
+            return '<p>' + escapeHtml(markdown) + '</p>';
+        }
+        const parseRow = (line) => line
+            .split('|')
+            .slice(1, -1)
+            .map((cell) => escapeHtml(cell.trim()));
+        const headers = parseRow(lines[0]);
+        const rows = lines.slice(2).map(parseRow);
+        const htmlRows = rows.map((cells) => {
+            let html = '';
+            for (let i = 0; i < headers.length; i++) {
+                html += `<td>${cells[i] !== undefined ? cells[i] : ''}</td>`;
+            }
+            return `<tr>${html}</tr>`;
+        }).join('');
+        const headHtml = headers.map((h) => `<th>${h}</th>`).join('');
+        return `<table class="result-table" style="border-collapse:collapse;width:100%;font-size:13px;">
+            <thead><tr>${headHtml}</tr></thead>
+            <tbody>${htmlRows}</tbody>
+        </table>`;
+    }
+
+    function showResultWithTable(message, markdown) {
+        const resultArea = document.getElementById('resultContent');
+        const messageHtml = message ? `<p style="margin-bottom:10px;">${escapeHtml(message)}</p>` : '';
+        resultArea.innerHTML = messageHtml + pipeTableToHtml(markdown);
     }
 
     function showChart(chartData) {
