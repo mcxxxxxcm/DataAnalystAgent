@@ -30,7 +30,7 @@ import secrets
 from config.settings import get_settings, validate_settings
 from core.database import db_pool
 from api.routes import router
-from middleware import setup_checkpointer, close_checkpointer
+from middleware import setup_checkpointer, close_checkpointer, setup_store, aclose_store
 
 
 @asynccontextmanager
@@ -58,6 +58,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await setup_checkpointer()
         print("Checkpointer initialized successfully!")
+        try:
+            await setup_store()
+        except Exception as e:
+            print(f"Warning: Store setup failed (long-term memory disabled): {e}")
         
         # 启动时清理旧的 checkpoint（保留最近7天）
         print("Cleaning up old checkpoints...")
@@ -89,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     print("Shutting down...")
     await close_checkpointer()
+    await aclose_store()
     await db_pool.close()
     print("Service stopped.")
 

@@ -21,7 +21,11 @@ from .config import (
     setup_checkpointer,
     close_checkpointer,
     reset_checkpointer,
-    get_dev_middleware_config
+    get_dev_middleware_config,
+    get_store,
+    setup_store,
+    aclose_store,
+    reset_store,
 )
 
 __all__ = [
@@ -37,5 +41,10 @@ __all__ = [
     "setup_checkpointer",
     "close_checkpointer",
     "reset_checkpointer",
-    "get_dev_middleware_config"
+    "get_dev_middleware_config",
+
+    "get_store",
+    "setup_store",
+    "aclose_store",
+    "reset_store",
 ]

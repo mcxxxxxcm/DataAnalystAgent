@@ -2,6 +2,27 @@
 
 本文档记录本项目的所有重要变更，遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的惯例。
 
+## [1.2.0] - 2026-09-04
+
+### SQL 可靠性（自纠增强）
+
+- **结构化 SQL 错误自纠**
+  - 新增 `core/security/sql_error.py`：`classify_sql_error()` 把常见 PostgreSQL 错误（列/表不存在、列歧义、函数不存在、语法错误、除零、超时、GROUP BY/聚合、权限、类型不匹配等 13 类）分类成 `{code, summary, suggestion}`，`build_self_correction_message()` 拼装面向 LLM 的自纠反馈。
+  - `tools/sql_tools.py`：`query_database` 执行失败时不再只回传裸报错字符串，改为输出「[错误码] + 原始错误 + 修复建议」，驱动 generate→execute→reflect 重试。
+  - `agent/prompts.py`：新增「SQL 自纠与反思」规则，指导 LLM 读到修复建议后先用 get_table_schema/get_relevant_schemas 核对真实结构再纠正重试、不臆造表名/列名、重试上限 3 次后如实报告。
+
+### 结果展示
+
+- **查询结果 Markdown 表格**
+  - `tools/result_schemas.py`：`QueryResult` 新增 `to_markdown()`，把 columns+data 转成 GitHub 风格管道表格（单元格转义 | 与换行、超长截断）。
+  - `api/routes.py`：`/api/query` 成功时新增 `extract_query_result()`，把最后一个成功查询的 `data` 与 `markdown` 回传（补齐此前这些字段一直为空的缺口）。
+  - `api/schemas.py`：`QueryResponse` 新增 `markdown` 字段。
+  - `static/index.html`：结果区新增管道表格→HTML 渲染，查询结果以表格形式展示。
+
+### 工程化
+
+- **新增单元测试**：`tests/test_sql_error.py`（分类 10+ 分支）、`tests/test_result_schemas.py` 增加 `to_markdown` 5 个用例。`pytest tests/ -q` 全通过。
+
 ## [1.1.0] - 2026-08-28
 
 ### 安全加固（P0）

@@ -10,7 +10,7 @@
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-from typing import Optional
+from typing import Optional, Union, Dict, List
 from functools import lru_cache
 import os
 from pathlib import Path
@@ -36,6 +36,10 @@ class Settings(BaseSettings):
         description="模型温度参数，越低越确定。"
     )
     llm_max_tokens: int = Field(default=4096, description="最大token数")
+    llm_context_window: Optional[int] = Field(
+        default=None,
+        description="模型上下文窗口大小(token)。留空时按 llm_model 推断；用于推导消息裁剪/摘要预算"
+    )
 
     # === 数据库配置 ===
     db_host: str = Field(default="localhost", description="数据库主机地址")
@@ -63,6 +67,34 @@ class Settings(BaseSettings):
     default_tool_scope: str = Field(
         default="full",
         description="默认工具范围: full / read_only / query_only。full=全部；read_only=排除导出与自定义绘图；query_only=仅SQL查询工具"
+    )
+
+    # === Schema Linking（相关表检索） ===
+    schema_max_relevant_tables: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="get_relevant_schemas 单次返回的最大相关表数"
+    )
+    schema_value_profiling: bool = Field(
+        default=False,
+        description="是否对 top 候选表的低基数字符串列抓 distinct 样例值(帮助 LLM 猜过滤条件，略增查询开销)"
+    )
+    schema_synonyms: Optional[str] = Field(
+        default=None,
+        description="可选的用户自定义同义词映射，逗号分隔的 '词=表A,表B' 段，如 '业绩=sales,购买=orders'"
+    )
+
+    # === 人工审核 / 审计 ===
+    audit_log_enabled: bool = Field(
+        default=True,
+        description="是否记录审批/拒绝等人工审核决策到 audit.jsonl"
+    )
+
+    # === 记忆 / 长期记忆 Store ===
+    enable_memory_tools: bool = Field(
+        default=True,
+        description="是否启用 remember/recall 长期记忆工具(需启用 PostgresStore)"
     )
 
     # === 工具返回载荷裁剪（送入 LLM 前） ===
@@ -103,6 +135,10 @@ class Settings(BaseSettings):
         ge=1,
         le=10,
         description="SQL执行失败时的最大重试次数"
+    )
+    sql_retry_on_transient: bool = Field(
+        default=True,
+        description="对瞬时/可恢复类 SQL 错误(超时、死锁、连接中断等)自动重试(经 ToolRetryMiddleware)"
     )
     agent_verbose: bool = Field(default=True, description="是否显示详细日志")
 
@@ -154,12 +190,55 @@ class Settings(BaseSettings):
         """CORS是否全放开（包含通配符 * ）"""
         return "*" in self.cors_origin_list
 
+    @property
+    def context_budget(self) -> int:
+        """
+        推导可用于消息/工具的上下文预算(token)。
+
+        规则：优先用显式 llm_context_window；否则按常见模型窗口上下限做推断；
+        再乘 0.8 作为「建议占用上限」，给本轮 tool 参数与模型输出留 20% 余量。
+        """
+        window = self.llm_context_window or _infer_context_window(self.llm_model)
+        return int(window * 0.8)
+
+    @property
+    def user_synonym_map(self) -> Dict[str, List[str]]:
+        """
+        解析 schema_synonyms 为用户同义词表：{同义词: [表A, 表B]}。
+        段格式: '业绩=sales,购买=orders'（段用逗号，表用顿号/逗号分隔）。
+        """
+        mapping: Dict[str, List[str]] = {}
+        if not self.schema_synonyms:
+            return mapping
+        for segment in self.schema_synonyms.split(','):
+            segment = segment.strip()
+            if not segment or '=' not in segment:
+                continue
+            word, _, tables = segment.partition('=')
+            word, tables = word.strip().lower(), tables.strip()
+            if word and tables:
+                mapping[word] = [t.strip().lower() for t in tables.replace('、', ',').split(',') if t.strip()]
+        return mapping
+
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
+
+def _infer_context_window(model: str) -> int:
+    """
+    由模型名推断上下文窗口(token)的粗略兜底。
+    None(显式已给) 或未知名 → 128k（LLM 时代基线）。
+    """
+    m = model.lower()
+    if '1.5-pro' in m or '2.0' in m or 'claude-3-5-sonnet' in m or 'gpt-4o' in m or 'glm-4-plus' in m:
+        return 128000
+    if '1.5-flash' in m or 'gpt-4' in m or 'glm-4' in m or 'deepseek' in m:
+        return 128000
+    return 128000
+
 
 @lru_cache()
 def get_settings() -> Settings:

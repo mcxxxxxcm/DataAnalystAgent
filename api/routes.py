@@ -91,24 +91,51 @@ def format_approval_request(interrupt_data: List[Any], thread_id: str) -> Dict[s
                 description = getattr(action, 'description', '')
             else:
                 continue
-            
-            # 判断风险等级
-            risk_level = "low"
-            if tool_name == "query_database":
-                sql = args.get("query", "").upper() if isinstance(args, dict) else ""
-                if "DELETE" in sql or "DROP" in sql or "TRUNCATE" in sql:
-                    risk_level = "high"
-                elif "UPDATE" in sql or "INSERT" in sql:
+
+            raw_sql = args.get("query") if isinstance(args, dict) and tool_name == "query_database" else None
+
+            # 对 query_database 用统一风险评估器（三态 + 中文回述 + 轨迹）而非简单关键字
+            risk_level = "medium"
+            risk_factors: List[str] = []
+            recommendations: List[str] = []
+            decision = "confirm"
+            natural_desc = None
+            sanitized_sql = raw_sql
+            used_tables: List[str] = []
+
+            if raw_sql:
+                try:
+                    from core.security.risk_assessor import risk_assessor
+                    from core.security.sql_sanitizer import sql_sanitizer
+                    from tools.boundaries import extract_sql_tables
+                    assessment = risk_assessor.assess(raw_sql)
+                    risk_level = assessment.risk_level.value
+                    risk_factors = [f.value for f in assessment.risk_factors]
+                    recommendations = assessment.recommendations
+                    decision = assessment.decision.value
+                    natural_desc = assessment.natural_description or None
+                    used_tables = extract_sql_tables(raw_sql)
+                    try:
+                        sanitized_sql = sql_sanitizer.sanitize(raw_sql).sanitized_sql
+                    except Exception:
+                        sanitized_sql = raw_sql
+                except Exception:
                     risk_level = "medium"
-            
+
             # 生成友好的描述
             friendly_desc = _generate_friendly_description(tool_name, args, description)
-            
+
             actions.append(ActionRequest(
                 tool_name=tool_name,
                 description=friendly_desc,
-                sql=args.get("query") if isinstance(args, dict) and tool_name == "query_database" else None,
-                risk_level=risk_level
+                sql=raw_sql,
+                sql_sanitized=sanitized_sql,
+                natural_description=natural_desc,
+                used_tables=used_tables,
+                risk_level=risk_level,
+                risk_factors=risk_factors,
+                recommendations=recommendations,
+                decision=decision,
             ))
     
     # 生成标题和消息
@@ -151,6 +178,23 @@ def _generate_friendly_description(tool_name: str, args: Dict, original_desc: st
     
     else:
         return original_desc[:200] if original_desc else f"执行 {tool_name}"
+
+
+def _last_query_sql(messages: List[Any]) -> Optional[str]:
+    """从消息里找出最近一次 query_database 的 SQL 参数（用于审计）。"""
+    for msg in reversed(messages):
+        # ToolMessage: 直接从其关联的 tool call args 恢复太复杂，改从 content 里带出
+        if type(msg).__name__ == 'ToolMessage' and getattr(msg, 'name', None) == 'query_database':
+            payload = parse_tool_result(getattr(msg, 'content', None))
+            if payload and payload.get('sql_query'):
+                return payload['sql_query']
+        # AIMessage tool_calls
+        for tc in getattr(msg, 'tool_calls', []) or []:
+            if getattr(tc, 'name', None) == 'query_database':
+                args = getattr(tc, 'args', {}) or {}
+                if isinstance(args, dict) and args.get('query'):
+                    return args['query']
+    return None
 
 
 def extract_query_result(messages: List[Any]) -> Optional[Dict[str, Any]]:
@@ -366,6 +410,25 @@ async def approve(request: ApprovalRequest):
             decision=request.decision,
             message=request.reason
         )
+
+        # 审计：记录审批/拒绝决策（best-effort，失败不影响主流程）
+        try:
+            from core.security.risk_assessor import risk_assessor
+            sql_arg = _last_query_sql(result.get("messages", [])) or ""
+            assessment = risk_assessor.assess(sql_arg) if sql_arg else None
+            local_logger.log_approval(
+                thread_id=request.thread_id,
+                tool_name="query_database",
+                sql=sql_arg,
+                decision=request.decision,
+                risk_level=assessment.risk_level.value if assessment else None,
+                risk_factors=[f.value for f in assessment.risk_factors] if assessment else None,
+                natural_description=assessment.natural_description if assessment else None,
+                outcome="approved" if request.decision == "approve" else "rejected",
+                reason=request.reason,
+            )
+        except Exception:
+            pass
 
         messages = result.get("messages", [])
         last_message = messages[-1] if messages else None

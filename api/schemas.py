@@ -41,7 +41,23 @@ class ActionRequest(BaseModel):
     tool_name: str = Field(description="工具名称")
     description: str = Field(description="操作描述")
     sql: Optional[str] = Field(default=None, description="SQL 语句")
+    sql_sanitized: Optional[str] = Field(
+        default=None, description="安全清理后的最终 SQL（含自动 LIMIT）"
+    )
+    natural_description: Optional[str] = Field(
+        default=None, description="SQL 的中文业务回述"
+    )
+    used_tables: List[str] = Field(
+        default_factory=list, description="SQL 涉及的（非系统）表名"
+    )
     risk_level: str = Field(default="medium", description="风险等级: low, medium, high")
+    risk_factors: List[str] = Field(
+        default_factory=list, description="命中的风险因素"
+    )
+    recommendations: List[str] = Field(
+        default_factory=list, description="针对风险的建议"
+    )
+    decision: str = Field(default="confirm", description="三态决策: allow / confirm / deny")
 
 
 class FormattedApprovalRequest(BaseModel):

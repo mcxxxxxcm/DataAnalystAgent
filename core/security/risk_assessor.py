@@ -19,6 +19,17 @@ from .sql_validator import SQLRiskLevel
 from .sql_sanitizer import sql_sanitizer
 
 
+class Decision(Enum):
+    """三类决策（allow/confirm/deny）：
+    ALLOW   — 允许直接执行（低/无风险，无需人工）
+    CONFIRM — 需人工审核(HITL)后执行
+    DENY    — 禁止执行（守卫层直接拒绝，不进 HITL）
+    """
+    ALLOW = "allow"
+    CONFIRM = "confirm"
+    DENY = "deny"
+
+
 class RiskFactor(Enum):
     """风险因素"""
     HIGH_COMPLEXITY = "high_complexity"  # 高复杂度
@@ -38,6 +49,8 @@ class RiskAssessment:
     confidence: float
     explanation: str
     recommendations: List[str]
+    decision: Decision = Decision.ALLOW
+    natural_description: str = ""
 
 
 class RiskAssessor:
@@ -131,14 +144,33 @@ class RiskAssessor:
         # 生成解释
         explanation = self._generate_explanation(risk_level, risk_factors)
 
+        # 三态决策：CRITICAL→DENY；HIGH/MEDIUM→CONFIRM；LOW/SAFE→ALLOW
+        decision = self._decide(risk_level)
+
+        # 自然语言回述（供 HITL 展示）
+        from .sql_to_natural_language import describe_sql
+        natural_description = describe_sql(sql)
+
         return RiskAssessment(
             risk_level=risk_level,
             requires_approval=requires_approval,
             risk_factors=risk_factors,
             confidence=0.85,  # 基于规则的评估置信度
             explanation=explanation,
-            recommendations=recommendations
+            recommendations=recommendations,
+            decision=decision,
+            natural_description=natural_description,
         )
+
+    def _decide(self, risk_level: SQLRiskLevel) -> Decision:
+        """由风险等级映射为三态决策。"""
+        if risk_level == SQLRiskLevel.CRITICAL:
+            return Decision.DENY
+        if risk_level == SQLRiskLevel.HIGH:
+            return Decision.CONFIRM
+        if risk_level == SQLRiskLevel.MEDIUM:
+            return Decision.CONFIRM if self.require_approval_medium else Decision.ALLOW
+        return Decision.ALLOW
 
     def _determine_risk_level(
             self,

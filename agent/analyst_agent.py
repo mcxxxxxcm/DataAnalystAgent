@@ -8,19 +8,21 @@ from typing import Optional, Dict, Any, List
 from functools import lru_cache
 
 from langchain.agents import AgentState, create_agent
-from langchain.agents.middleware import before_model, HumanInTheLoopMiddleware
+from langchain.agents.middleware import (
+    before_model, HumanInTheLoopMiddleware, SummarizationMiddleware,
+)
 from langchain_openai import ChatOpenAI
 from langgraph.runtime import Runtime
 from langchain.messages import RemoveMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
-from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from config.settings import get_settings
 from tools import get_enabled_tools
 from middleware import (
     get_middleware_list,
     get_interrupt_on_config,
     get_checkpointer,
-    get_async_checkpointer
+    get_async_checkpointer,
+    get_store
 )
 from middleware.truncation import condense_tool_results
 from .prompts import build_system_prompt
@@ -80,7 +82,7 @@ class AnalystAgentFactory:
 
         middleware = get_middleware_list(enable_logging=enable_logging)
 
-        # 压缩工具返回载荷（降 token），同步版不做总量修剪
+        # 压缩工具返回载荷（降 token）
         @before_model
         def condense_tool_results_middleware(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
             messages = state.get("messages", [])
@@ -96,6 +98,16 @@ class AnalystAgentFactory:
 
         middleware.append(condense_tool_results_middleware)
 
+        # 长上下文自动摘要（官方中间件）：超过预算阈值时把早前历史摘要成一条
+        # SystemMessage，保留最近 keep 条消息。较手写 trim 更不易剪坏 tool/human 配对。
+        middleware.append(
+            SummarizationMiddleware(
+                model=llm,
+                trigger=("tokens", self.settings.context_budget),
+                token_counter=llm.get_num_tokens_from_messages,
+            )
+        )
+
         if enable_hitl:
             interrupt_on = get_interrupt_on_config()
             middleware.append(
@@ -109,6 +121,7 @@ class AnalystAgentFactory:
             tools=tools,
             system_prompt=system_prompt,
             checkpointer=cp,
+            store=get_store(),
             middleware=middleware,
         )
 
@@ -158,44 +171,31 @@ class AnalystAgentFactory:
 
         middleware = get_middleware_list(enable_logging=enable_logging)
 
-        # 添加消息裁剪中间件
+        # 工具返回载荷压缩（跨轮压缩 ToolMessage 载荷，降单条 token）
         @before_model
-        async def trim_messages_middleware(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-            """先压缩工具返回载荷，再裁剪消息历史，保持在 max_tokens 限制内"""
+        async def condense_tool_results_middleware(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
             messages = state.get("messages", [])
+            condensed = condense_tool_results(messages)
+            if condensed != messages:
+                return {
+                    "messages": [
+                        RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                        *condensed
+                    ]
+                }
+            return None
 
-            # 第一步：压缩 ToolMessage 载荷，只保留必要字段（降单条 token）
-            messages = condense_tool_results(messages)
+        middleware.append(condense_tool_results_middleware)
 
-            print(f"[trim_messages] 当前消息数量: {len(messages)}")
-
-            if len(messages) <= 3:
-                print(f"[trim_messages] 消息数量 <= 3，跳过裁剪")
-                return None
-
-            before_tokens = count_tokens_approximately(messages)
-            print(f"[trim_messages] 裁剪前 token 数: {before_tokens}")
-
-            trimmed = trim_messages(
-                messages,
-                strategy="last",
-                token_counter=count_tokens_approximately,
-                max_tokens=self.max_tokens,
-                start_on="human",
-                end_on=("human", "tool"),
+        # 长上下文自动摘要（官方中间件）：预算超过 settings.context_budget 触发，
+        # 用真实 model tokenizer 计数，保留最近 keep 条消息，早前历史摘要为 SystemMessage。
+        middleware.append(
+            SummarizationMiddleware(
+                model=llm,
+                trigger=("tokens", self.settings.context_budget),
+                token_counter=llm.get_num_tokens_from_messages,
             )
-
-            after_tokens = count_tokens_approximately(trimmed)
-            print(f"[trim_messages] 裁剪后 token 数: {after_tokens}, 消息数: {len(trimmed)}")
-
-            return {
-                "messages": [
-                    RemoveMessage(id=REMOVE_ALL_MESSAGES),
-                    *trimmed
-                ]
-            }
-
-        middleware.append(trim_messages_middleware)
+        )
 
         if enable_hitl:
             interrupt_on = get_interrupt_on_config()
@@ -210,6 +210,7 @@ class AnalystAgentFactory:
             tools=tools,
             system_prompt=system_prompt,
             checkpointer=cp,
+            store=get_store(),
             middleware=middleware,
         )
 

@@ -113,6 +113,21 @@ class LocalLogger:
         self._json_logger.handlers.clear()
         self._json_logger.addHandler(self.tool_log_handler)
 
+        # 审计日志（HITL 审批/拒绝决策）——独立 JSONL，同样走 RotatingFileHandler 轮转
+        self._audit_file = self.log_dir / "audit.jsonl"
+        self._audit_handler = RotatingFileHandler(
+            self._audit_file,
+            maxBytes=max_file_size,
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
+        self._audit_handler.setFormatter(logging.Formatter('%(message)s'))
+        self._audit_logger = logging.getLogger("DataAnalystAgent.audit")
+        self._audit_logger.setLevel(logging.INFO)
+        self._audit_logger.propagate = False
+        self._audit_logger.handlers.clear()
+        self._audit_logger.addHandler(self._audit_handler)
+
         # 控制台处理器（开发环境）
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(
@@ -260,6 +275,48 @@ class LocalLogger:
                     continue
 
         return results
+
+    def log_approval(
+            self,
+            thread_id: str,
+            tool_name: str,
+            sql: Optional[str],
+            decision: str,
+            risk_level: Optional[str] = None,
+            risk_factors: Optional[list] = None,
+            natural_description: Optional[str] = None,
+            outcome: Optional[str] = None,
+            reason: Optional[str] = None,
+            approver: str = "human",
+    ) -> None:
+        """
+        记录一条人工审核/拒绝决策到 audit.jsonl（可追溯、可审计）。
+
+        仅当 settings.audit_log_enabled 为 True 时写盘。
+        """
+        from config.settings import get_settings
+        if not get_settings().audit_log_enabled:
+            return
+
+        record = {
+            "event": "approval",
+            "timestamp": datetime.now().isoformat(),
+            "thread_id": thread_id,
+            "tool": tool_name,
+            "sql_sanitized": self._truncate_output(sql, 2000),
+            "decision": decision,
+            "risk_level": risk_level,
+            "risk_factors": risk_factors or [],
+            "natural_description": natural_description or "",
+            "outcome": outcome,
+            "reason": reason,
+            "approver": approver,
+        }
+        self._audit_logger.info(json.dumps(record, ensure_ascii=False, default=str))
+        self.logger.info(
+            f"[审核] tool={tool_name} thread={thread_id} decision={decision} "
+            f"level={risk_level or '-'} outcome={outcome or '-'}"
+        )
 
     def log_agent_event(
             self,

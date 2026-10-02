@@ -11,6 +11,8 @@ from datetime import datetime
 import asyncio
 
 from core.database.pool import db_pool
+from core.database.schema_linking import TableIndex, rank_relevant_tables, build_synonym_map
+from config.settings import get_settings
 
 
 @dataclass
@@ -82,6 +84,8 @@ class SchemaManager:
         self._cache: Dict[str, TableSchema] = {}
         self._cache_time: Dict[str, datetime] = {}
         self._cache_ttl = 3600
+        self._index: Optional[TableIndex] = None
+        self._recent: List[str] = []  # 近期使用过的表（按使用顺序），兜底用
 
     async def list_tables(self) -> List[str]:
         """列出所有业务表名（排除系统表）"""
@@ -182,69 +186,90 @@ class SchemaManager:
         return schema
 
     async def get_relevant_schemas(self, query: str, max_tables: int = 3) -> str:
-        """获取相关表的Schema（排除系统表）"""
-        # 系统表前缀/名称，需要排除
-        SYSTEM_TABLES = {
-            'checkpoint_blobs', 'checkpoint_migrations', 'checkpoint_writes',
-            'checkpoints', 'conversations', 'messages', 'tool_calls',
-            'query_cache', 'report_templates'
-        }
-        
-        # 业务关键词到表的映射
-        KEYWORD_TABLE_MAP = {
-            '销售': ['sales'],
-            '订单': ['orders', 'order_items'],
-            '用户': ['users'],
-            '产品': ['products'],
-            '商品': ['products'],
-            '收入': ['sales'],
-            '利润': ['sales'],
-            '客户': ['users'],
-            'sale': ['sales'],
-            'order': ['orders', 'order_items'],
-            'user': ['users'],
-            'product': ['products'],
-            'revenue': ['sales'],
-            'customer': ['users'],
-        }
-        
+        """获取相关表的Schema（基于加权评分检索，排除系统表）"""
+        settings = get_settings()
+        limit = max_tables or settings.schema_max_relevant_tables
         all_tables = await self.list_tables()
-        query_lower = query.lower()
-        
-        relevant_tables = []
-        
-        # 1. 基于关键词匹配
-        for keyword, tables in KEYWORD_TABLE_MAP.items():
-            if keyword in query_lower or keyword.lower() in query_lower:
-                for table in tables:
-                    if table in all_tables and table not in relevant_tables:
-                        relevant_tables.append(table)
-        
-        # 2. 基于表名匹配（排除系统表）
-        for table in all_tables:
-            if table in SYSTEM_TABLES:
-                continue
-            if table.lower() in query_lower:
-                if table not in relevant_tables:
-                    relevant_tables.append(table)
-            elif table.rstrip('s').lower() in query_lower:
-                if table not in relevant_tables:
-                    relevant_tables.append(table)
-        
-        # 3. 如果没有匹配，返回主要业务表
-        if not relevant_tables:
-            PRIORITY_TABLES = ['sales', 'orders', 'order_items', 'products', 'users']
-            for table in PRIORITY_TABLES:
-                if table in all_tables:
-                    relevant_tables.append(table)
-        
-        # 获取 schema
-        schema_descriptions = []
-        for table in relevant_tables[:max_tables]:
-            schema = await self.get_table_schema(table)
-            schema_descriptions.append(schema.to_llm_format())
-        
+
+        index = await self._get_index()
+        candidates = rank_relevant_tables(
+            query,
+            index=index,
+            max_tables=limit,
+            recent_tables=list(reversed(self._recent)),
+            priority_tables=self._priority_tables(),
+            user_synonyms=settings.user_synonym_map,
+        )
+
+        # 排名摘要行（供 LLM 决策 + HITL 轨迹复用）
+        ranking_summary = "相关表(按相关性): " + ", ".join(
+            f"{c.table}(score={c.score};{(';'.join(c.reasons))})" if c.reasons else c.table
+            for c in candidates
+        )
+
+        schema_descriptions = [f"## 检索摘要\n{ranking_summary}"]
+        for cand in candidates:
+            schema = await self.get_table_schema(cand.table)
+            self._touch(cand.table)
+            text = schema.to_llm_format()
+            if settings.schema_value_profiling:
+                text += await self._attach_value_profiling(cand.table, schema)
+            schema_descriptions.append(text)
+
         return "\n\n".join(schema_descriptions)
+
+    def _priority_tables(self) -> List[str]:
+        """配置/常见业务表兜底顺序。"""
+        return ['sales', 'orders', 'order_items', 'products', 'users']
+
+    async def _get_index(self) -> TableIndex:
+        """惰性构建检索索引；每次 clear_cache / 新增表后自动重建。"""
+        if self._index is not None:
+            return self._index
+        index = TableIndex()
+        settings = get_settings()
+        synonyms = build_synonym_map(settings.user_synonym_map)
+        for table in await self.list_tables():
+            try:
+                schema = await self.get_table_schema(table)
+            except Exception:
+                continue
+            index.add(
+                table,
+                columns=[
+                    {'name': c.name, 'comment': c.comment}
+                    for c in schema.columns
+                ],
+                table_comment=schema.comment,
+                synonyms=synonyms,
+            )
+        self._index = index
+        return index
+
+    def _touch(self, table: str) -> None:
+        """记录表被使用，供兜底/重排。"""
+        if table in self._recent:
+            self._recent.remove(table)
+        self._recent.append(table)
+        self._recent = self._recent[-20:]
+
+    async def _attach_value_profiling(self, table: str, schema: TableSchema) -> str:
+        """对低基数字符串列抓 distinct 样例值，附到 schema 文本，帮 LLM 猜过滤条件。"""
+        lines = []
+        for col in schema.columns:
+            if col.data_type not in ('character varying', 'varchar', 'text', 'character', 'char'):
+                continue
+            try:
+                rows = await db_pool.fetch(
+                    f'SELECT DISTINCT "{col.name}" AS v FROM "{table}" '
+                    f'WHERE "{col.name}" IS NOT NULL LIMIT 8'
+                )
+            except Exception:
+                continue
+            vals = [str(r['v']) for r in rows if r['v'] is not None]
+            if 1 < len(vals) <= 8:
+                lines.append(f"    {col.name} 示例取值: {', '.join(vals)}")
+        return "\n".join(lines) if lines else ""
 
     async def get_sample_data(self, table_name: str, limit: int = 3) -> List[Dict[str, Any]]:
         """获取样本数据"""
@@ -253,13 +278,14 @@ class SchemaManager:
         return [dict(row) for row in rows]
 
     def clear_cache(self, table_name: Optional[str] = None) -> None:
-        """清除缓存"""
+        """清除缓存（索引一并失效以强制重建）"""
         if table_name:
             self._cache.pop(table_name, None)
             self._cache_time.pop(table_name, None)
         else:
             self._cache.clear()
             self._cache_time.clear()
+        self._index = None
 
 
 # 全局实例

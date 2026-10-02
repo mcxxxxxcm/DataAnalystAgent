@@ -28,7 +28,13 @@ if _settings.enable_custom_chart:
 else:
     CHART_TOOLS = [create_chart]
 
-ALL_TOOLS = SQL_TOOLS + CHART_TOOLS + ANALYSIS_TOOLS
+# 长期记忆工具（remember/recall），由 enable_memory_tools 控制是否加入
+_MEMORY_EXTRA = []
+if _settings.enable_memory_tools:
+    from .memory_tools import MEMORY_TOOLS
+    _MEMORY_EXTRA = MEMORY_TOOLS
+
+ALL_TOOLS = SQL_TOOLS + CHART_TOOLS + ANALYSIS_TOOLS + _MEMORY_EXTRA
 
 # 预定义只读分析子集：排除 export_result（写本地文件）与 create_custom_chart（任意代码执行）
 _READ_ONLY_EXTRA = [statistical_summary, data_profile]
@@ -36,7 +42,7 @@ _READ_ONLY_EXTRA = [statistical_summary, data_profile]
 # 工具级权限子集。注入 agent 时按 scope 选择，实现读写/职责分层。
 TOOL_SETS = {
     "full": ALL_TOOLS,
-    "read_only": SQL_TOOLS + _READ_ONLY_EXTRA + CHART_TOOLS,
+    "read_only": SQL_TOOLS + _READ_ONLY_EXTRA + CHART_TOOLS + _MEMORY_EXTRA,
     "query_only": SQL_TOOLS,
 }
 

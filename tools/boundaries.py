@@ -95,6 +95,16 @@ async def guard_query_sql(
 
     # 3. 清理：规范化 + 自动 LIMIT（钳制到 sql_max_rows）
     sanitized = sanitizer.sanitize(str(query))
+
+    # 4. 三态风险门禁：CRITICAL/无WHERE写 等 DENY 级操作在守卫处直接拒绝（不触库、不进 HITL）
+    from core.security.risk_assessor import risk_assessor, Decision
+    assessment = risk_assessor.assess(str(query))
+    if assessment.decision == Decision.DENY:
+        denial = "查询被安全策略拒绝（最低风险要求未满足）：" + assessment.explanation
+        if assessment.recommendations:
+            denial += "；" + "；".join(assessment.recommendations[:3])
+        return None, denial
+
     return sanitized.sanitized_sql, None
 
 

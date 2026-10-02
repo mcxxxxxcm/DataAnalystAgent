@@ -48,8 +48,8 @@ async def query_database(query: str) -> str:
         )
         return dump_result(result)
     except Exception as e:
-        # 用自纠友好的错误信息（分类 + 修复建议）替代裸报错字符串，回喂给 LLM 驱动重试
-        result = QueryResult(success=False, error=build_self_correction_message(str(e)),
+        # 用自纠友好的错误信息（SQLSTATE + 分类 + detail + 修复建议）替代裸报错字符串，回喂给 LLM 驱动重试
+        result = QueryResult(success=False, error=build_self_correction_message(str(e), exc=e),
                              execution_time=time.time() - start_time)
         return dump_result(result)
 

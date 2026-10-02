@@ -10,7 +10,7 @@ SQL错误分类器
 """
 
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 # (错误码, 正则模式, 简洁摘要, 修复建议)。
 # 建议文案面向 LLM 系统提示词，明确指引下一步动作。
@@ -121,18 +121,77 @@ def classify_sql_error(error: str) -> Dict[str, str]:
     }
 
 
-def build_self_correction_message(error: str) -> str:
+def extract_sqlstate(exc: Exception) -> Dict[str, str]:
     """
-    工具层弃用：把原始错误拼装成面向 LLM 的自纠反馈字符串。
+    从数据库驱动异常中提取结构化诊断(SQLSTATE + PostgreSQL diag)。
 
-    形如：
-        [column_not_found] 引用了不存在的列。原始错误: column "xx" does not exist。修复建议: ...
+    返回 {"sqlstate", "message", "detail", "hint"}。无字段则返回空串。
+    兼容 asyncpg(`.sqlstate`、`.diag`)；其他异常只取 str 兜底。
+    """
+    sqlstate = str(getattr(exc, 'sqlstate', '') or '')
+    diag = getattr(exc, 'diag', None)
+    message = getattr(exc, 'message', '') or ''
+
+    detail = hint = ''
+    if diag is not None:
+        detail = str(getattr(diag, 'message_detail', '') or '')
+        hint = str(getattr(diag, 'hint', '') or '')
+
+    if not message:
+        message = str(exc)
+
+    return {
+        "sqlstate": sqlstate,
+        "message": message,
+        "detail": detail,
+        "hint": hint,
+    }
+
+
+def is_transient_error(exc: Exception) -> bool:
+    """
+    判断是否为「瞬时/可恢复」错误(值得官方中间件自动重试)。
+
+    覆盖：连接中断/重置、死锁、串行化冲突、语句超时。非语法/逻辑类错误。
+    """
+    text = f"{getattr(exc, 'sqlstate', '')} {exc}".lower()
+    for marker in ('57p01', '57p02', '57p03',  # admin_shutdown / cannot_connect / cannot_connect_now
+                   '40p01', '40001',          # deadlock / serialization_failure
+                   '57014', '55p03',          # query_canceled / lock_not_available
+                   'connection', 'timeout', 'too many connections', 'reset'):
+        if marker in text:
+            return True
+    return False
+
+
+def build_self_correction_message(error: str, *, exc: Optional[Exception] = None) -> str:
+    """
+    把原始错误拼装成面向 LLM 的自纠反馈字符串。
+
+    优先使用真实 SQLSTATE + detail(若有)，否则回退正则分类。形如：
+        SQLSTATE[42883] [function_not_found] 使用不存在的函数...。
+        原始错误: function foo(...) does not exist。detail: ...。修复建议: ...
     """
     info = classify_sql_error(error)
+
+    head = f"[{info['code']}] {info['summary']}"
+    state = getattr(exc, 'sqlstate', None) if exc is not None else None
+    if state:
+        head = f"SQLSTATE[{state}] " + head
+
+    detail_part = ""
+    if exc is not None:
+        fields = extract_sqlstate(exc)
+        if fields.get("detail"):
+            detail_part = f" detail: {fields['detail']}"
+        if fields.get("hint"):
+            detail_part += f" hint: {fields['hint']}"
+
     return (
-        f"[{info['code']}] {info['summary']}。原始错误: {error or '(空)'}。"
+        f"{head}。原始错误: {error or '(空)'}{detail_part}。"
         f"修复建议: {info['suggestion']}"
     )
 
 
-__all__ = ["classify_sql_error", "build_self_correction_message"]
+__all__ = ["classify_sql_error", "build_self_correction_message",
+           "extract_sqlstate", "is_transient_error"]

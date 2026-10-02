@@ -12,6 +12,8 @@ from typing import Dict, Set, Optional, List
 from dataclasses import dataclass, field
 
 from langgraph.checkpoint.memory import InMemorySaver
+from langchain.agents.middleware import ToolRetryMiddleware, ToolErrorMiddleware
+from core.security.sql_error import is_transient_error
 
 from .logging_wrapper import logging_middleware
 
@@ -38,7 +40,9 @@ class HITLConfig:
 
 def get_middleware_list(
         hitl_config: Optional[HITLConfig] = None,
-        enable_logging: bool = True
+        enable_logging: bool = True,
+        enable_retry: Optional[bool] = None,
+        tools: Optional[list] = None
 ) -> List:
     """
     获取中间件列表
@@ -48,14 +52,32 @@ def get_middleware_list(
     参数:
         hitl_config: HITL配置
         enable_logging: 是否启用日志
+        enable_retry: 是否启用官方 ToolRetryMiddleware（默认取 settings.sql_retry_on_transient）
+        tools: 工具列表（用于限定重试工具；传 None 则重试所有工具）
 
     返回:
         中间件列表
     """
+    from config.settings import get_settings
+    settings = get_settings()
+
     middlewares = []
+
+    # 错误格式化：把工具抛出的异常统一封装为结构化反馈(ToolError)，避免裸 str(e) 回喂 LLM
+    middlewares.append(ToolErrorMiddleware())
 
     if enable_logging:
         middlewares.append(logging_middleware)
+
+    # 瞬时/可恢复错误自动重试（默认开启，见 settings.sql_retry_on_transient）
+    if (enable_retry if enable_retry is not None else settings.sql_retry_on_transient):
+        middlewares.append(
+            ToolRetryMiddleware(
+                max_retries=settings.max_retry_attempts,
+                tools=tools,
+                retry_on=lambda exc: is_transient_error(exc),
+            )
+        )
 
     return middlewares
 
@@ -92,6 +114,66 @@ def get_interrupt_on_config(
 
 _async_checkpointer_instance = None
 _checkpointer_context_manager = None
+
+# 长期记忆 Store 全局（名称前缀与 checkpointer 区分；psycopg/asyncpg 均可）
+_store_instance = None
+_store_context_manager = None
+
+
+def get_store():
+    """
+    获取长期记忆 Store 实例（AsyncPostgresStore）。未初始化返回 None。
+    供 memory_tools / 需要跨会话记忆的地方使用。
+    """
+    return _store_instance
+
+
+async def setup_store():
+    """
+    初始化长期记忆 Store 表（PostgresStore）。
+
+    与 checkpointer 共用同一库（不同表前缀 `store_`）。失败时静默降级为 None，
+    保证在主流程里记忆是「加分项」而非强依赖。
+    """
+    global _store_instance, _store_context_manager
+
+    try:
+        from config.settings import get_settings
+        from langgraph.store.postgres import AsyncPostgresStore
+
+        settings = get_settings()
+        uri = (
+            f"postgresql://{settings.db_user}:{settings.db_password}"
+            f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+        )
+
+        _store_context_manager = AsyncPostgresStore.from_conn_string(uri)
+        store = await _store_context_manager.__aenter__()
+        await store.setup()
+        _store_instance = store
+        print("[Store] ✅ PostgresStore initialized for long-term memory")
+    except Exception as e:
+        print(f"[Store] ⚠️ PostgresStore setup failed: {type(e).__name__}: {e}")
+        _store_instance = None
+
+
+async def aclose_store():
+    """关闭 Store 连接（应用退出时调用，尽力而为）。"""
+    global _store_context_manager
+
+    if _store_context_manager is not None:
+        try:
+            await _store_context_manager.__aexit__(None, None, None)
+        except Exception:
+            pass
+        _store_context_manager = None
+
+
+def reset_store():
+    """重置 Store 实例（用于测试）。"""
+    global _store_instance, _store_context_manager
+    _store_instance = None
+    _store_context_manager = None
 
 
 def get_checkpointer():
