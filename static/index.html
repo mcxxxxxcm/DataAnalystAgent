@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Analyst Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -421,7 +422,7 @@
             } else if (data.success) {
                 updateStatus('ready', '查询完成');
                 // 优先显示图表
-                if (data.chart_data && data.chart_data.image_base64) {
+                if (data.chart_data && (data.chart_data.option_id || data.chart_data.image_base64)) {
                     showChart(data.chart_data);
                 } else if (data.markdown) {
                     showResultWithTable(data.message, data.markdown);
@@ -475,7 +476,7 @@
             if (data.success) {
                 updateStatus('ready', '审核已处理');
                 
-                if (data.result && data.result.chart_data && data.result.chart_data.image_base64) {
+                if (data.result && data.result.chart_data && (data.result.chart_data.option_id || data.result.chart_data.image_base64)) {
                     showChart(data.result.chart_data);
                 } else if (data.result && data.result.message) {
                     showResult(data.result.message);
@@ -572,45 +573,82 @@
         resultArea.innerHTML = messageHtml + pipeTableToHtml(markdown);
     }
 
+    // 用 ECharts 渲染刚 fetch 到的 option；若为 PNG（_png_base64）则回退 <img>
+    function renderChartSpec(spec, containerId) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        if (spec && spec._png_base64) {
+            el.outerHTML = `<img src="data:image/png;base64,${spec._png_base64}"
+                 style="max-width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);"/>`;
+            return;
+        }
+        if (spec && typeof echarts !== 'undefined') {
+            const chart = echarts.init(el);
+            chart.setOption(spec);
+            window.addEventListener('resize', () => chart.resize());
+        } else {
+            el.textContent = '图表渲染失败：ECharts 未加载或配置无效';
+        }
+    }
+
+    function loadOption(chartData, containerId) {
+        if (chartData.option_id) {
+            const chartId = String(chartData.option_id).replace('chart_id:', '');
+            fetch('/api/chart/option/' + chartId)
+                .then(r => r.json())
+                .then(spec => renderChartSpec(spec, containerId))
+                .catch(err => {
+                    const el = document.getElementById(containerId);
+                    if (el) el.textContent = '图表加载失败：' + err.message;
+                });
+        } else if (chartData.image_base64) {
+            // 兼容：直接内嵌的 PNG base64
+            const el = document.getElementById(containerId);
+            if (el) el.outerHTML = `<img src="data:image/png;base64,${chartData.image_base64}"
+                 style="max-width:100%;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);"/>`;
+        }
+    }
+
     function showChart(chartData) {
         const resultArea = document.getElementById('resultContent');
         resultArea.innerHTML = `
         <p style="margin-bottom: 10px;">${chartData.message || '图表已生成'}</p>
-        <img src="data:image/png;base64,${chartData.image_base64}"
-             style="max-width: 100%; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);" />
+        <div id="chartContainer0" style="width:100%;height:420px;"></div>
     `;
+        loadOption(chartData, 'chartContainer0');
     }
 
     function showCharts(allCharts) {
         const resultArea = document.getElementById('resultContent');
-        
+
         if (!allCharts || allCharts.length === 0) {
             resultArea.innerHTML = '<p>没有图表数据</p>';
             return;
         }
-        
+
         let html = '<div style="display: flex; flex-direction: column; gap: 20px;">';
-        
+
         allCharts.forEach((chart, index) => {
             const chartTypeNames = {
                 'bar': '柱状图',
                 'line': '折线图',
-                'pie': '饼图'
+                'pie': '饼图',
+                'scatter': '散点图'
             };
             const chartTypeName = chartTypeNames[chart.chart_type] || '图表';
-            
+
             html += `
                 <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; background: #f8f9fa;">
                     <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #333;">${chartTypeName} ${index + 1}</h3>
                     <p style="margin: 0 0 10px 0; color: #666;">${chart.message || ''}</p>
-                    <img src="data:image/png;base64,${chart.image_base64}"
-                         style="max-width: 100%; border-radius: 4px; box-shadow: 0 1px 5px rgba(0,0,0,0.1);" />
+                    <div id="chartContainer${index}" style="width:100%;height:380px;"></div>
                 </div>
             `;
         });
-        
+
         html += '</div>';
         resultArea.innerHTML = html;
+        allCharts.forEach((chart, index) => loadOption(chart, 'chartContainer' + index));
     }
 
     checkHealth();

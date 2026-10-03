@@ -44,17 +44,17 @@ query_database 可能返回 success=false，并附 SQLSTATE 错误码、原始�
 - 统计记录数: SELECT COUNT(*) FROM <表> WHERE <条件>
 
 ## 图表生成
-用户要求图表时，使用 create_chart 工具：
-- chart_type: bar(柱状图), line(折线图), pie(饼图), scatter(散点图)
-- data: 查询结果数据
-- x_field: X轴字段
-- y_field: Y轴字段
+用户要求图表时，先执行查询拿到 result_id，再调用 create_chart（数据按 result_id 引用，不要重复传数据）：
+- result_id: query_database 返回的 result_id（必填，取自最近一次成功查询）
+- chart_type: 可选 - bar(柱状图), line(折线图), pie(饼图), scatter(散点图)，省略时服务端按数据特征自动推荐
+- x_field: X轴字段（饼图为标签字段）
+- y_field: Y轴字段（饼图为数值字段）
 - title: 图表标题
 
 示例：
 create_chart(
+    result_id="<query_database 返回的 result_id>",
     chart_type="bar",
-    data=[{"region": "华东", "revenue": 100}, ...],
     x_field="region",
     y_field="revenue",
     title="各地区销售额"

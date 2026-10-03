@@ -32,6 +32,13 @@ CHART_TOOL_NAMES = {
 }
 
 
+def _is_chart_result(tool_result: Optional[dict]) -> bool:
+    """判断工具结果是否为图表（ECharts option 或 PNG 任一形态）"""
+    if not tool_result:
+        return False
+    return bool(tool_result.get("option_id") or tool_result.get("image_base64"))
+
+
 def resolve_chart_image(image_value: str) -> Optional[str]:
     """
     解析图表图片标识为真实 base64。
@@ -230,24 +237,18 @@ def extract_chart_data(messages: List[Any]) -> Optional[Dict[str, Any]]:
         tool_result = parse_tool_result(getattr(msg, 'content', None))
 
         # 从 ToolMessage 的 content 中提取图表（统一经 parse_tool_result 解析）
-        if msg_type == 'ToolMessage' and tool_result and tool_result.get('image_base64'):
-            actual_image = resolve_chart_image(tool_result['image_base64'])
-            if actual_image:
-                tool_result['image_base64'] = actual_image
-                return tool_result
+        if msg_type == 'ToolMessage' and tool_result and _is_chart_result(tool_result):
+            return tool_result
 
         # 兼容按工具名识别的图表消息（万一 ToolMessage 未命中）
         if msg_type != 'ToolMessage':
             msg_name = getattr(msg, 'name', None)
-            if msg_name in CHART_TOOL_NAMES and tool_result and tool_result.get('image_base64'):
-                actual_image = resolve_chart_image(tool_result['image_base64'])
-                if actual_image:
-                    tool_result['image_base64'] = actual_image
-                    return tool_result
+            if msg_name in CHART_TOOL_NAMES and tool_result and _is_chart_result(tool_result):
+                return tool_result
 
         artifact = getattr(msg, 'artifact', None)
         if artifact and isinstance(artifact, dict):
-            if artifact.get('image_base64'):
+            if artifact.get('image_base64') or artifact.get('option_id'):
                 return artifact
 
     return None
@@ -271,19 +272,22 @@ def extract_all_chart_data(messages: List[Any]) -> List[Dict[str, Any]]:
             continue
 
         tool_result = parse_tool_result(getattr(msg, 'content', None))
-        if not (tool_result and tool_result.get('image_base64')):
+        if not (tool_result and _is_chart_result(tool_result)):
             continue
 
         chart_type = tool_result.get('chart_type', 'unknown')
         message = tool_result.get('message', '')
+        option_id = tool_result.get('option_id', '')
         image_base64 = tool_result.get('image_base64', '')
 
-        actual_image = resolve_chart_image(image_base64)
-        if not actual_image:
-            continue
-        tool_result['image_base64'] = actual_image
+        if image_base64:
+            actual_image = resolve_chart_image(image_base64)
+            if not actual_image:
+                continue
+            tool_result['image_base64'] = actual_image
 
-        chart_id = f"{chart_type}_{hashlib.md5((message + actual_image[:50]).encode()).hexdigest()}"
+        key = option_id or image_base64
+        chart_id = f"{chart_type}_{hashlib.md5((message + key[:50]).encode()).hexdigest()}"
 
         if chart_id not in seen_chart_ids:
             charts.append(tool_result)
@@ -523,6 +527,20 @@ async def get_export_file(file_id: str):
         media_type=export_manager.media_type(export_file.format),
         filename=export_file.filename
     )
+
+
+@router.get("/chart/option/{chart_id}")
+async def get_chart_option(chart_id: str):
+    """
+    获取图表 option（ECharts 配置或 PNG base64，取决于图表形态）。
+
+    由 create_chart 生成并缓存（chart_id:<id> 句柄）。前端据此渲染图表。
+    """
+    from tools.chart_tools import get_cached_spec
+    spec = get_cached_spec(chart_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="图表不存在或已过期")
+    return spec
 
 
 @router.get("/health", response_model=HealthResponse)

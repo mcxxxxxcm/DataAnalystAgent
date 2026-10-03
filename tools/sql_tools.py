@@ -19,6 +19,7 @@ from config.settings import get_settings
 from tools.result_schemas import QueryResult, dump_result
 from tools.boundaries import guard_query_sql, is_allowed_table
 from core.security.sql_error import build_self_correction_message
+from utils.result_store import set_result
 
 # SELECT 类查询返回上限，建议 LLM 用 LIMIT 缩小范围，超出部分截断
 _SELECT_HARD_CAP = get_settings().sql_max_rows
@@ -42,9 +43,11 @@ async def query_database(query: str) -> str:
         rows = await db_pool.fetch(sql, timeout=timeout)
         data = [dict(row) for row in rows]
         columns = list(rows[0].keys()) if rows else []
+        # 结果入引用缓存，供 create_chart 按 result_id 取数，避免 LLM 重传完整数据
+        result_id = set_result(columns, data) if rows else ""
         result = QueryResult(
             success=True, data=data[: _SELECT_HARD_CAP], row_count=len(data),
-            columns=columns, execution_time=time.time() - start_time
+            columns=columns, result_id=result_id, execution_time=time.time() - start_time
         )
         return dump_result(result)
     except Exception as e:

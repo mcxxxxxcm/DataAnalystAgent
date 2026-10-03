@@ -2,6 +2,27 @@
 
 本文档记录本项目的所有重要变更，遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的惯例。
 
+## [1.3.0] - 2026-10-03
+
+### 图表生成（声明式 ECharts + 数据引用化）
+
+- **数据引用化，降低 token 消耗**
+  - 新增 `utils/result_store.py`：有界 TTL 缓存（上限 50 条、10 分钟过期，模式复用既有图表缓存）存储查询结果。
+  - `tools/sql_tools.py`：`query_database` 成功时把 `columns+rows` 存入 result_store，`QueryResult` 新增 `result_id`。
+  - `tools/chart_tools.py`：`create_chart` 签名改为 `(result_id, chart_type, x_field, y_field, title)`，服务端按 result_id 取数，工具入参从「重传完整结果（数百 token）」降至「约 20 token 的固定 spec」，且消除 `data[:100]` 截断导致的丢数据。
+  - `agent/prompts.py`：图表规则改为「先查查询再传 result_id」，不再让 LLM 把数据重传进工具参数。
+
+- **声明式 ECharts，提高精度**
+  - 新增 `utils/chart_spec.py`：`build_echarts_option()` 把结果构建为紧凑 ECharts option（内嵌 dataset + encode）；字段缺失时返回精确错误并列出合法字段，驱动 LLM 精准重试；`chart_type=None` 时按列基数/数值性自动推荐图型。
+  - `tools/chart_tools.py`：默认图表改为返回 `option_id` 句柄，前端经 `GET /api/chart/option/{id}` 取 option 渲染，弃用 matplotlib→80dpi PNG 的默认路径；`create_custom_chart`（PNG）保留。
+  - `api/routes.py`：新增 `GET /api/chart/option/{chart_id}`；`extract_chart_data` / `extract_all_chart_data` 同时识别 `option_id`。
+  - `static/index.html`：引入 ECharts CDN，`showChart` / `showCharts` 改为 fetch option 后 `echarts.setOption` 矢量渲染，PNG 走 `<img>` 回退。
+
+- **返回模型**
+  - `tools/result_schemas.py`：`QueryResult` 新增 `result_id`；`ChartResult` 新增 `option_id`（保留 `image_base64` 兼容）。`RESULT_KEEP_FIELDS` 由模型字段自动派生，裁剪中间件无需改动。
+
+- **新增测试**：`tests/test_chart_spec.py` 8 个用例（四种图型 option 结构、字段缺失精确报错、自动图型推荐等）。`pytest tests/ -q` 76 项全过。
+
 ## [1.2.0] - 2026-09-04
 
 ### SQL 可靠性（自纠增强）

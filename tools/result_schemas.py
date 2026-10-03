@@ -28,6 +28,7 @@ class QueryResult(BaseModel):
     row_count: int = 0
     columns: List[str] = Field(default_factory=list)
     error: str = ""
+    result_id: str = ""
     execution_time: float = 0.0
 
     def to_markdown(self, max_rows: int = 100, max_cell_chars: int = 100) -> str:
@@ -66,7 +67,8 @@ class ChartResult(BaseModel):
     """图表生成结果"""
     success: bool
     chart_type: str = ""
-    image_base64: str = ""
+    option_id: str = ""       # ECharts option 句柄（chart_id:<id>），默认图表路径
+    image_base64: str = ""    # 保留：create_custom_chart（PNG）路径
     message: str = ""
     error: str = ""
 

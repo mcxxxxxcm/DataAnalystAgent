@@ -65,7 +65,20 @@
       "Bash(py -m eval.run_eval)",
       "Bash(py -c \"import sys,io; sys.stdout=io.TextIOWrapper\\(sys.stdout.buffer,encoding='utf-8'\\) import os os.environ.setdefault\\('API_KEY','x'\\) import api.main as m app=m.app print\\('api.main import ok; routes:', [r.path for r in app.routes if hasattr\\(r,'path'\\)][:8]\\) \")",
       "Bash(py -c \"import sys,io; sys.stdout=io.TextIOWrapper\\(sys.stdout.buffer,encoding='utf-8'\\), sys.stderr=io.TextIOWrapper\\(sys.stderr.buffer,encoding='utf-8'\\) import os; os.environ.setdefault\\('API_KEY','x'\\) import api.main print\\('app ok:', type\\(api.main.app\\).__name__\\) print\\('routes:', [getattr\\(r,'path',None\\) for r in api.main.app.routes if hasattr\\(r,'path'\\)][:10]\\) \")",
-      "Bash(py _tmp_import_check.py)"
+      "Bash(py _tmp_import_check.py)",
+      "WebFetch(domain:github.com)",
+      "Bash(echo \"EXIT=$?\")",
+      "Read(//tmp/**)",
+      "Bash(cat /tmp/py.txt)",
+      "Bash(cat /tmp/pyerr.txt)",
+      "Bash(echo \"A=$?\")",
+      "Bash(python -c \"print\\('hello'\\)\")",
+      "Bash(echo \"B=$?\")",
+      "Bash(where python *)",
+      "Bash(py --version)",
+      "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -c 'import sys; print\\(sys.version\\)')",
+      "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -m pytest tests/test_chart_spec.py -v)",
+      "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -c 'import ast; [ast.parse\\(open\\(f,encoding='\\\\''utf-8'\\\\''\\).read\\(\\)\\) for f in ['\\\\''api/routes.py'\\\\'','\\\\''tools/chart_tools.py'\\\\'','\\\\''tools/sql_tools.py'\\\\'','\\\\''tools/result_schemas.py'\\\\'','\\\\''agent/prompts.py'\\\\'','\\\\''utils/chart_spec.py'\\\\'','\\\\''utils/result_store.py'\\\\'']]; print\\('\\\\''AST OK'\\\\''\\)')"
     ]
   }
 }
