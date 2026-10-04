@@ -78,7 +78,9 @@
       "Bash(py --version)",
       "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -c 'import sys; print\\(sys.version\\)')",
       "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -m pytest tests/test_chart_spec.py -v)",
-      "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -c 'import ast; [ast.parse\\(open\\(f,encoding='\\\\''utf-8'\\\\''\\).read\\(\\)\\) for f in ['\\\\''api/routes.py'\\\\'','\\\\''tools/chart_tools.py'\\\\'','\\\\''tools/sql_tools.py'\\\\'','\\\\''tools/result_schemas.py'\\\\'','\\\\''agent/prompts.py'\\\\'','\\\\''utils/chart_spec.py'\\\\'','\\\\''utils/result_store.py'\\\\'']]; print\\('\\\\''AST OK'\\\\''\\)')"
+      "Bash(/c/Users/86176/AppData/Local/Python/bin/python.exe -c 'import ast; [ast.parse\\(open\\(f,encoding='\\\\''utf-8'\\\\''\\).read\\(\\)\\) for f in ['\\\\''api/routes.py'\\\\'','\\\\''tools/chart_tools.py'\\\\'','\\\\''tools/sql_tools.py'\\\\'','\\\\''tools/result_schemas.py'\\\\'','\\\\''agent/prompts.py'\\\\'','\\\\''utils/chart_spec.py'\\\\'','\\\\''utils/result_store.py'\\\\'']]; print\\('\\\\''AST OK'\\\\''\\)')",
+      "WebFetch(domain:specd.openspec.dev)",
+      "Bash(gh repo *)"
     ]
   }
 }
