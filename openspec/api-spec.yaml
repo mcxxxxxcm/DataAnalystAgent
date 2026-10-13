@@ -1,0 +1,169 @@
+# Text2SQL 分析 Agent —— API 契约（轻量版）
+#
+# 项目内轻量 YAML（非 OpenAPI），风格对齐 proposal.md / design.md，给人审 + 轻量工具用。
+# 契约口径以代码为准：api/routes.py + api/schemas.py + config/settings.py。
+# 对应能力：openspec/specs/spec.md 的 CAP-API-xxx。
+#
+# 术语口径见 openspec/terminology.md（result_id / option_id / HITL / 风险三态）。
+
+meta:
+  title: Text2SQL 分析 Agent API
+  version: 1.0.0
+  base_path: /api
+  host: "{api_host}:{api_port}"            # 默认 0.0.0.0:8080，见 config/settings.py
+  transport: HTTP（异步 uvicorn 单 worker，见 api_workers=1）
+
+  # --- 鉴权 / CORS（见 config/settings.py 与 CAP-API-002/003） ---
+  auth:
+    scheme: Bearer Token
+    enabled_when: "API_AUTH_TOKEN 非空则全部 /api/** 需 Authorization: Bearer <token>"
+    compare: 恒定时间比较（防时序侧信道）
+  cors:
+    origins: cors_origins（逗号分隔）；默认 "*"
+    rule: 含 "*" 时禁用 credentials，避免 [*]+credentials 不安全组合
+
+  # --- 统一错误语义 ---
+  error_model: ErrorResponse
+  error_cases:
+    - 500: 服务端异常（HTTPException detail）
+    - 404: 资源不存在或已过期（导出文件 / 图表 option）
+
+models:
+  QueryRequest:            # POST /api/query 请求
+    query: str             # 用户的自然语言查询（必填）
+    thread_id: str | null  # 会话ID，多轮对话短期记忆用；空则服务端生成
+  ApprovalRequest:         # POST /api/approve 请求（HITL 决策）
+    thread_id: str         # 会话ID
+    decision: str          # approve | reject（pattern 校验）
+    reason: str | null     # 原因（reject 时常用）
+  ActionRequest:           # HITL 待审操作（属于 FormattedApprovalRequest）
+    tool_name: str         # 工具名
+    description: str       # 友好操作描述
+    sql: str | null        # 原始 SQL
+    sql_sanitized: str | null  # 安全清理后 SQL（含自动 LIMIT）
+    natural_description: str | null  # SQL 中文业务回述（供审核者理解）
+    used_tables: "[str]"  # SQL 涉及的非系统表名
+    risk_level: str        # low | medium | high
+    risk_factors: "[str]"  # 命中的风险因素
+    recommendations: "[str] # 针对风险的建议"
+    decision: str          # 三态决策 allow | confirm | deny
+  FormattedApprovalRequest:  # 格式化审核请求（挂在 QueryResponse）
+    title: str
+    message: str
+    actions: "[ActionRequest]"
+    allowed_decisions: "[str]"  # ["approve","reject"]
+    thread_id: str
+  QueryResponse:           # POST /api/query 响应
+    success: bool
+    thread_id: str
+    message: str | null    # 响应消息
+    data: "[{dict}] | null"  # 查询结果数据（原始 data）
+    markdown: str | null   # 查询结果的 Markdown 管道表格
+    sql: str | null        # 执行的 SQL
+    charts: "[str] | null"  # 图表列表（base64）
+    chart_data: dict | null     # 主图表数据（option_id 或 image_base64）
+    all_charts: "[dict]"  # 全部图表数据（去重）
+    debug_info: dict | null
+    requires_approval: bool     # true 时进入 HITL 分流，需调 /api/approve
+    approval_request: FormattedApprovalRequest | null  # requires_approval=true 时携带
+    error: str | null
+    execution_time_ms: float
+  ApprovalResponse:        # POST /api/approve 响应
+    success: bool
+    thread_id: str
+    message: str           # "审核已处理" / "操作已拒绝"
+    result: dict | null    # {message, chart_data, all_charts, debug_info}
+  StateResponse:           # GET /api/state/{thread_id} 响应
+    thread_id: str
+    state: dict | null     # checkpointer 保存的 state.values
+    next_steps: "[str]"
+  HealthResponse:          # GET /api/health 响应
+    status: str            # healthy | degraded
+    timestamp: str
+    version: str
+    database_connected: bool
+  LogResponse:             # GET /api/logs 响应
+    records: "[dict]"  # 本地日志记录
+    total: int
+
+endpoints:
+  - path: POST /api/query
+    request: QueryRequest
+    response: QueryResponse
+    behavior:
+      - 创建或复用 thread（thread_id 相同保持短期记忆上下文）
+      - Agent 执行自然语言查询 → 生成并校验 SQL → 执行 → 返回结果/图表
+      - __interrupt__ 命中（写操作/高风险）→ requires_approval=true + approval_request
+      - 成功时提取最后一个成功 query 的 columns/data/markdown
+    caps: "[CAP-API-001, CAP-API-005]"
+
+  - path: POST /api/approve
+    request: ApprovalRequest
+    response: ApprovalResponse
+    behavior:
+      - 按 decision 继续或拒绝 HITL 中断的操作
+      - 落审计日志（best-effort，失败不影响主流程）：SQL / 风险三态 / 回述 / 结果
+      - 返回续跑后的 message + 全部图表（all_charts）
+    caps: "[CAP-API-001, CAP-SEC-004, CAP-MID-002]"
+
+  - path: GET /api/state/{thread_id}
+    request: { path: { thread_id: str } }
+    response: StateResponse
+    behavior: 读取 checkpointer 会话状态与 next 步骤（调试/审计）
+    caps: "[CAP-API-001, CAP-MID-003]"
+
+  - path: GET /api/export/{file_id}
+    request: { path: { file_id: str } }
+    response: 附件文件（FileResponse，media_type 按格式）
+    behavior: 由 export_result 生成；不存在/过期返回 404
+    caps: "[CAP-API-001, CAP-UTIL-003]"
+
+  - path: GET /api/chart/option/{chart_id}
+    request: { path: { chart_id: str } }
+    response: dict（ECharts option 或 PNG base64）
+    behavior: 由 create_chart 缓存（chart_id:<id> 句柄）；不存在/过期返回 404
+    caps: "[CAP-API-001, CAP-TOOL-004, CAP-UTIL-002]"
+
+  - path: GET /api/health
+    request: {}
+    response: HealthResponse
+    behavior: 检查服务与数据库连接状态；db 断 → status=degraded
+    caps: "[CAP-API-001]"
+
+  - path: GET /api/logs
+    request:
+      query:
+        limit: int     # 默认10，范围 1..100
+        tool_name: str | null  # 可选过滤
+    response: LogResponse
+    behavior: 读取本地日志记录（local_logger）
+    caps: "[CAP-API-001, CAP-MID-001]"
+
+  - path: GET /api/stream/{thread_id}?query=...
+    request: { path: { thread_id: str }, query: { query: str } }
+    response: "SSE（text/event-stream，data: {json}\\n\\n）"
+    behavior: 实时流式返回 Agent 执行进度，支持短期记忆
+    caps: "[CAP-API-001, CAP-AGENT-001]"
+
+  - path: GET /api/checkpoints/stats
+    request: {}
+    response: dict（各表记录数与日期分布）
+    behavior: checkpoint 统计，供清理决策
+    caps: "[CAP-API-001, CAP-UTIL-004]"
+
+  - path: POST /api/checkpoints/cleanup
+    request:
+      query:
+        days_to_keep: int   # 默认7，范围 1..30，保留最近 N 天
+        dry_run: bool       # 默认 true，只统计不删除
+    response: dict（清理结果统计）
+    behavior: 清理旧 checkpoint（安全：dry_run 默认开）
+    caps: "[CAP-API-001, CAP-UTIL-004]"
+
+  - path: POST /api/checkpoints/cleanup-orphaned
+    request:
+      query:
+        dry_run: bool       # 默认 true
+    response: dict（清理结果统计）
+    behavior: 清理孤儿 checkpoint
+    caps: "[CAP-API-001, CAP-UTIL-004]"

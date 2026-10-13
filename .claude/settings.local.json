@@ -82,7 +82,19 @@
       "WebFetch(domain:specd.openspec.dev)",
       "Bash(gh repo *)",
       "Bash(pip show *)",
-      "Bash(pip list *)"
+      "Bash(pip list *)",
+      "Bash(gh api *)",
+      "Bash(curl -s \"https://api.github.com/repos/huangjia2019/sdd-in-action/git/trees/master?recursive=1\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(t['path']\\) for t in d.get\\('tree',[]\\) if any\\(k in t['path'].lower\\(\\) for k in ['spec','proposal','design','task','api-']\\)]\")",
+      "Bash(curl -s \"https://api.github.com/repos/huangjia2019/sdd-in-action/git/trees/master?recursive=1\" -o /tmp/tree.json)",
+      "Bash(python -c \"import json;d=json.load\\(open\\('/tmp/tree.json'\\)\\);print\\('truncated',d.get\\('truncated'\\)\\);print\\(len\\(d.get\\('tree',[]\\)\\),'entries'\\)\")",
+      "Bash(curl -s --max-time 15 \"https://raw.githubusercontent.com/huangjia2019/sdd-in-action/master/book-code/specs/proposal.md\" -o /tmp/ref_proposal.md)",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', list\\(d['models'].keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import yaml; print\\('yaml ok'\\)\")",
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" --version)",
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; print\\('yaml ok'\\)\")",
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', len\\(d['models']\\)\\)\")",
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -)"
     ]
   }
 }
