@@ -94,7 +94,8 @@
       "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" --version)",
       "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; print\\('yaml ok'\\)\")",
       "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', len\\(d['models']\\)\\)\")",
-      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -)"
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -)",
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', len\\(d['models']\\), sorted\\(d['models'].keys\\(\\)\\)\\)\")"
     ]
   }
 }

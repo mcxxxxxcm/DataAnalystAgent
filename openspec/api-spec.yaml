@@ -85,6 +85,10 @@ models:
   LogResponse:             # GET /api/logs 响应
     records: "[dict]"  # 本地日志记录
     total: int
+  ErrorResponse:           # 统一错误响应（见 meta.error_cases）
+    error: str
+    detail: str | null
+    timestamp: str         # ISO8601（datetime.now().isoformat()）
 
 endpoints:
   - path: POST /api/query

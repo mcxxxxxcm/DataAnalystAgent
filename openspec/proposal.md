@@ -50,6 +50,10 @@
 - **可观测性与成本**：载荷裁剪、长上下文自动摘要、本地日志、HITL 审计（CAP-MID / CAP-UTIL）。
 - **评测与回归**：Text2SQL golden 集评测 + 单元测试硬门槛（CAP-EVAL-001..004）。
 
+> **落地文档交叉引用**：本文所述能力的能力清单以 `openspec/specs/spec.md`（CAP-xxx）为准，
+> 任务分解见 `openspec/tasks.md`（TASK-xxx），API 端点与请求/响应契约见 `openspec/api-spec.yaml`。
+> 术语口径见 `openspec/terminology.md`（TERM-xxx）。
+
 ### 2.2 不做什么（Non-goals，明确排除）
 
 > 防范围蔓延。沿用 `project.md` Scope & Non-goals：
@@ -65,6 +69,7 @@
 - 技术栈：`Python` + `LangChain / LangGraph (deepagents)` + `FastAPI` + `PostgreSQL/asyncpg`（`agreement.md` §1）。
 - 分层铁律：`api → agent → tools → core`，`tools` 不得反向依赖 `api/agent`；配置进 `config/settings.py` 并给默认值，敏感值走 `.env`（`agreement.md` §1 / §4）。
 - 运行方式：本地开发 `run_server.py` / `start_windows.py`；API 为单 worker 异步 uvicorn 应用（`config/settings.py`）。
+- API 契约：端点/模型字段以 `openspec/api-spec.yaml` 为准（轻量 YAML），与 `api/routes.py` + `api/schemas.py` 对齐。
 - 安全红线必守：见 `agreement.md` §3（SQL 校验、HITL、任意代码执行默认关、工具边界），违反即打回。
 
 ## 3. 验收标准（Acceptance Criteria）
@@ -102,7 +107,7 @@
 - [ ] `create_custom_chart` 默认不进工具集，仅 `enable_custom_chart=True` 才暴露（*现状：✅ CAP-SEC-007 / CAP-TOOL-005*）。
 - [ ] 新工具默认 read-only；权限子集 full/read_only/query_only 生效，未知 scope 回退 full（*现状：✅ CAP-TOOL-008*）。
 - [ ] 系统表（checkpoint/store）黑名单同源一致，禁止查询（*现状：✅ CAP-TOOL-009*）。
-- [ ] **[已知隐患 / 待改进]** `export_result` 未走统一 `guard_query_sql` 守卫（并行校验路径、未查系统表黑名单）——近期候选收口（`tools/analysis_tools.py:181`）。
+- [ ] **[已知隐患 / 待改进]** `export_result` 未走统一 `guard_query_sql` 守卫（并行校验路径、未查系统表黑名单）——近期候选收口（`tools/analysis_tools.py:181`）。→ 收敛任务见 `openspec/tasks.md` TASK-BACKLOG-004（对应 change：`openspec/changes/export-result-guard/`）。
 
 ## 4. 术语定义（Glossary）
 
@@ -111,4 +116,4 @@
 
 ---
 
-*规范版本：v0.2（已由既有文档回填待填充项） | 维护人：@mcx | 更新：2026-10-09*
+*规范版本：v0.3（补 tasks/api-spec 交叉引用与候选收敛路径） | 维护人：@mcx | 更新：2026-10-13*
