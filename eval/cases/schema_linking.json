@@ -1,0 +1,50 @@
+[
+  {
+    "id": "s01",
+    "scenario": "schema_linking",
+    "nl": "各地区销售总额",
+    "expected": ["sales"],
+    "source": "nl",
+    "note": "销售总额 → 命中 sales(列注释「销售额」/ 同义词 销售)"
+  },
+  {
+    "id": "s02",
+    "scenario": "schema_linking",
+    "nl": "今年订单总数",
+    "expected": ["orders"],
+    "source": "nl",
+    "note": "订单 → 命中 orders(同义词 订单)。旧的合成索引没传同义词，这里必须带 build_synonym_map()"
+  },
+  {
+    "id": "s03",
+    "scenario": "schema_linking",
+    "nl": "销售额超1万的用户",
+    "expected": ["sales", "users"],
+    "source": "nl",
+    "note": "跨表：销售额→sales、用户→users，两者都应出现在 top-K"
+  },
+  {
+    "id": "s04",
+    "scenario": "schema_linking",
+    "nl": "查看产品表结构",
+    "expected": ["products"],
+    "source": "nl",
+    "note": "产品表 → products"
+  },
+  {
+    "id": "s05",
+    "scenario": "schema_linking",
+    "nl": "有多少注册用户",
+    "expected": ["users"],
+    "source": "nl",
+    "note": "用户 → users"
+  },
+  {
+    "id": "s06",
+    "scenario": "schema_linking",
+    "nl": "今年各地区的总订单金额",
+    "expected": ["orders"],
+    "source": "log",
+    "note": "订单金额→orders 应排在 sales 之前（订单优先），回归表检索排序"
+  }
+]

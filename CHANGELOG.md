@@ -2,6 +2,17 @@
 
 本文档记录本项目的所有重要变更，遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的惯例。
 
+## [Unreleased]
+
+### 确定性回归评测（坏 case / 错误案例 / 评测集）
+
+- **新增确定性意图路由器** `core/security/intent_guard.py`：把用户 NL 分类成 `query/chart/info/malicious/smalltalk/ambiguous/out_of_scope`，返回 `IntentVerdict`（含 deny/clarify 语义），用纯逻辑复用 `rank_relevant_tables` 判实体命中；NL 层「拒答 / 澄清 / 报错」从此有可单测、可进 CI 的确定性入口。
+- **评测集重构**：`eval/run_eval.py` 从单场景 5 条改为多场景聚合 harness；语料迁至 `eval/cases/` 三文件（`schema_linking` / `security_deny` / `routing_guard`）；删除了从未被校验的死字段 `sql_contains` 与旧的 `golden_queries.json`。
+- **评测索引贴近生产**：合成索引补上了同义词表（`build_synonym_map()`），修正旧索引「今年订单总数」等核心业务词不命中的假评测。
+- **文档与工具**：新增 `eval/badcases.md`（坏 case 台账 + 已知盲点，含恒真注入 `OR '1'='1'` 在 SQL 层不拦的待办）、`eval/mine_badcases.py`（扫 `logs/tool_calls.jsonl` dump 失败调用）。
+- **新增测试**：`tests/test_intent_guard.py`、`tests/test_eval_regression.py`；重写 `tests/test_eval_text2sql.py`。`pytest tests/ -q` 92 项全绿。
+- **配置**：`ENABLE_INTENT_ROUTER`（默认 `false`，接线 `/query` 的开关，当前仅评测直接调用路由器，不改运行时行为）。
+
 ## [1.3.0] - 2026-10-03
 
 ### 图表生成（声明式 ECharts + 数据引用化）

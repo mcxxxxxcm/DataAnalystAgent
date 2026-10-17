@@ -157,6 +157,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `SQL_MAX_ROWS` | `10000` | 查询最大返回行数（自动注入 LIMIT） |
 | `SQL_TIMEOUT` | `30` | SQL 执行超时（秒） |
 | `ENABLE_SQL_WRITE` | `false` | 是否允许 INSERT/UPDATE/DELETE |
+| `ENABLE_INTENT_ROUTER` | `false` | 是否在 `/query` 入口接入确定性意图路由器（前置拒答/澄清）。默认关：当前路由器仅被评测直接调用，不改运行时行为（接线列为后续） |
 
 ### Agent / API
 
@@ -221,6 +222,22 @@ curl -X POST http://127.0.0.1:8085/api/approve \
 6. **风险评估**（`risk_assessor.py`）：结合复杂度、多表、写操作、无 WHERE、敏感表等维度评级，决定是否触发人工审核。
 7. **人工审核 (HITL)**：写操作 / 高风险查询执行前中断，业务侧人工放行。
 8. **日志脱敏**：工具调用中的密码、密钥等自动替换为 `***REDACTED***`。
+
+---
+
+## 回归评测
+
+对 `schema` / 安全 / 路由改动做**确定性、无 DB / 无 LLM** 的断言回归（可进 CI）：
+
+```bash
+py -m eval.run_eval        # 输出每例 PASS/FAIL + 汇总指标，任一失败非零退出
+pytest tests/ -q           # 含完整评测套件 + 硬门槛断言
+py -m eval.mine_badcases   # 扫 logs/tool_calls.jsonl，dump 失败调用供沉淀坏 case
+```
+
+- 语料在 `eval/cases/`，分三类：`schema_linking`（表检索 precision@K）、`security_deny`（该拒必拒、合法 SELECT 不误杀）、`routing_guard`（拒答/澄清/报错路由判定）。
+- 坏 case / 错误案例的**人读台账**与**已知盲点**见 `eval/badcases.md`（含：恒真注入 `OR '1'='1'` 当前在 SQL 层不拦，记作待办）。
+- 新增意图路由器 `core/security/intent_guard.py`（纯逻辑），负责把 NL 分类成 `query/chart/info/malicious/smalltalk/ambiguous/out_of_scope`，供评测断言其 deny/clarify 语义。
 
 ---
 

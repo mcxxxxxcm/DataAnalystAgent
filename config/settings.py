@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     sql_max_rows: int = Field(default=10000, ge=1, description="SQL查询最大返回行数，防止全表扫描")
     sql_timeout: int = Field(default=30, ge=1, description="SQL执行超时时间(S)")
     enable_sql_write: bool = Field(default=False, description="是否允许写操作(INSERT/UPDATE/DELETE)")
+    enable_intent_router: bool = Field(
+        default=False,
+        description=("是否在 /query 入口接入确定性意图路由器(intent_guard)做前置拒答/澄清。"
+                     "默认关：当前路由器仅由评测(eval/run_eval.py)直接调用，不改运行时行为"
+                     "（core/security/intent_guard.classify_intent 为纯函数，与开关无关）")
+    )
 
     # === Redis缓存配置 ===
     redis_url: Optional[str] = Field(default=None, description="Redis连接URL，用于缓存Schema和查询结果")

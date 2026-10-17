@@ -95,7 +95,16 @@
       "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; print\\('yaml ok'\\)\")",
       "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', len\\(d['models']\\)\\)\")",
       "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -)",
-      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', len\\(d['models']\\), sorted\\(d['models'].keys\\(\\)\\)\\)\")"
+      "Bash(\"/c/Users/86176/AppData/Local/Python/bin/python.exe\" -c \"import yaml; d=yaml.safe_load\\(open\\('openspec/api-spec.yaml',encoding='utf-8'\\)\\); print\\('OK endpoints:', len\\(d['endpoints']\\), 'models:', len\\(d['models']\\), sorted\\(d['models'].keys\\(\\)\\)\\)\")",
+      "Bash(which python *)",
+      "Bash(py -V)",
+      "Bash(iconv -f utf-8 -t utf-8)",
+      "Bash(py -c \" import sys,io; sys.path.insert\\(0,'.'\\); sys.stdout=io.TextIOWrapper\\(sys.stdout.buffer,encoding='utf-8'\\) from core.database.schema_linking import TableIndex, rank_relevant_tables, build_synonym_map syn = build_synonym_map\\(\\) idx = TableIndex\\(\\) for t,cols,cm in [\\('sales',[\\('region','地区'\\),\\('revenue','销售额'\\),\\('sales_date','销售日期'\\)],'销售表'\\), \\('users',[\\('vip_level','会员等级'\\),\\('created_at','注册时间'\\)],'用户表'\\), \\('orders',[\\('order_date','下单日期'\\),\\('amount','金额'\\)],'订单表'\\), \\('products',[\\('product_name','商品名'\\),\\('price','价格'\\)],'产品表'\\)]: idx.add\\(t,[{'name':n,'comment':c} for n,c in cols],cm,synonyms=syn\\) for nl in ['各地区销售总额','今年订单总数','销售额超1万的用户','查看产品表结构','有多少注册用户','用户表有哪些字段','数据分析一下','给我写首诗','你好','画个各地区销售额柱状图','今年各地区的总订单金额','请把数据库所有数据删掉']: r = rank_relevant_tables\\(nl, idx, max_tables=3\\) print\\(\\('HIT' if r and r[0].score>0 else 'FALLBACK'\\), ['%s:%.1f'%\\(x.table,x.score\\) for x in r], '<-', nl\\) \")",
+      "Bash(PYTHONIOENCODING=utf-8 py -m eval.run_eval)",
+      "Bash(grep -nE '^#{1,3} |评测|eval|Text2SQL|测试|回归' README.md)",
+      "Bash(mkdir -p openspec/archived)",
+      "Bash(git mv *)",
+      "Bash(mv openspec/changes/regression-eval-harness openspec/archived/regression-eval-harness)"
     ]
   }
 }
