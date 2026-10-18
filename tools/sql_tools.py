@@ -18,7 +18,7 @@ from core.database import db_pool, schema_manager
 from config.settings import get_settings
 from tools.result_schemas import QueryResult, dump_result
 from tools.boundaries import guard_query_sql, is_allowed_table
-from core.security.sql_error import build_self_correction_message
+from core.security.sql_error import build_self_correction_message, is_transient_error
 from utils.result_store import set_result
 
 # SELECT 类查询返回上限，建议 LLM 用 LIMIT 缩小范围，超出部分截断
@@ -51,7 +51,10 @@ async def query_database(query: str) -> str:
         )
         return dump_result(result)
     except Exception as e:
-        # 用自纠友好的错误信息（SQLSTATE + 分类 + detail + 修复建议）替代裸报错字符串，回喂给 LLM 驱动重试
+        # 瞬时/可恢复错误（连接中断、死锁、超时等）直接抛出，交给 ToolRetryMiddleware 原样重试；
+        # 逻辑错误（列/表名错、语法错、除零等）才转结构化失败回喂 LLM 走自纠。
+        if is_transient_error(e):
+            raise
         result = QueryResult(success=False, error=build_self_correction_message(str(e), exc=e),
                              execution_time=time.time() - start_time)
         return dump_result(result)

@@ -159,3 +159,20 @@ def test_unknown_scope_falls_back_to_full():
     from tools import get_enabled_tools, ALL_TOOLS
     names = {t.name for t in get_enabled_tools("bogus")}
     assert names == {t.name for t in ALL_TOOLS}
+
+
+# ---------------- 中间件构建 ----------------
+
+def test_get_middleware_list_builds_with_retry():
+    from middleware.config import get_middleware_list
+    m = get_middleware_list(enable_logging=False, enable_retry=True)
+    names = [type(x).__name__ for x in m]
+    assert "ToolRetryMiddleware" in names
+    assert "ToolErrorMiddleware" not in names
+
+
+def test_get_middleware_list_no_retry_when_disabled():
+    from middleware.config import get_middleware_list
+    m = get_middleware_list(enable_logging=False, enable_retry=False)
+    names = [type(x).__name__ for x in m]
+    assert "ToolRetryMiddleware" not in names

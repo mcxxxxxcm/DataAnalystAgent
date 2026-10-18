@@ -104,7 +104,11 @@
       "Bash(grep -nE '^#{1,3} |评测|eval|Text2SQL|测试|回归' README.md)",
       "Bash(mkdir -p openspec/archived)",
       "Bash(git mv *)",
-      "Bash(mv openspec/changes/regression-eval-harness openspec/archived/regression-eval-harness)"
+      "Bash(mv openspec/changes/regression-eval-harness openspec/archived/regression-eval-harness)",
+      "Bash(python *)",
+      "Bash(py *)",
+      "Bash(API_KEY=test-key-for-unit-test py -m pytest tests/test_sql_tools.py tests/test_schema_cache.py tests/test_tool_boundaries.py -q)",
+      "Bash(API_KEY=test-key-for-unit-test py -m pytest tests/ -q)"
     ]
   }
 }

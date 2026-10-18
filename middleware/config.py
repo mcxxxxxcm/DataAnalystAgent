@@ -12,7 +12,7 @@ from typing import Dict, Set, Optional, List
 from dataclasses import dataclass, field
 
 from langgraph.checkpoint.memory import InMemorySaver
-from langchain.agents.middleware import ToolRetryMiddleware, ToolErrorMiddleware
+from langchain.agents.middleware import ToolRetryMiddleware
 from core.security.sql_error import is_transient_error
 
 from .logging_wrapper import logging_middleware
@@ -62,9 +62,6 @@ def get_middleware_list(
     settings = get_settings()
 
     middlewares = []
-
-    # 错误格式化：把工具抛出的异常统一封装为结构化反馈(ToolError)，避免裸 str(e) 回喂 LLM
-    middlewares.append(ToolErrorMiddleware())
 
     if enable_logging:
         middlewares.append(logging_middleware)

@@ -111,7 +111,7 @@ class SchemaManager:
         # 检查缓存
         if table_name in self._cache:
             cache_time = self._cache_time.get(table_name)
-            if cache_time and (datetime.now() - cache_time).seconds < self._cache_ttl:
+            if cache_time and (datetime.now() - cache_time).total_seconds() < self._cache_ttl:
                 return self._cache[table_name]
 
         # 并行查询

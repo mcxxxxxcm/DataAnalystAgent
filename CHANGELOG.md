@@ -13,6 +13,13 @@
 - **新增测试**：`tests/test_intent_guard.py`、`tests/test_eval_regression.py`；重写 `tests/test_eval_text2sql.py`。`pytest tests/ -q` 92 项全绿。
 - **配置**：`ENABLE_INTENT_ROUTER`（默认 `false`，接线 `/query` 的开关，当前仅评测直接调用路由器，不改运行时行为）。
 
+### 修复（P0）—— 瞬时错误重试链路 + schema 缓存时效
+
+- **移除坏的 `ToolErrorMiddleware`**：`middleware/config.py` 中 `ToolErrorMiddleware()` 无参构造即抛 `ValueError`（该版本要求必传 `on_error`/`aon_error`），导致 `get_middleware_list()`/`create_agent()` 直接失败、重试中间件从未被构建；且其职责与 `ToolRetryMiddleware` 的 `on_failure="continue"` + `query_database` 自纠重叠，按 Avoid#4 移除。
+- **瞬时错误真正进入重试链路**：`tools/sql_tools.py` 的 `query_database` 原先用 `except Exception` 吞掉所有异常转 `success=false`，使 `ToolRetryMiddleware.retry_on=is_transient_error` 永远等不到瞬时异常。现改为瞬时错误（连接中断/死锁/超时等）直接 `raise` 交给中间件重试，逻辑错误仍转结构化失败回喂 LLM 自纠。
+- **修复 schema 缓存跨天失效**：`core/database/schema.py` 缓存 TTL 判断用 `timedelta.seconds`（`[0,86400)` 模）会跨天回绕为「永远新鲜」，改 `total_seconds()` 正确判过期。
+- **新增测试**：`tests/test_sql_tools.py`（瞬时分流）、`tests/test_schema_cache.py`（TTL 过期/命中）、`tests/test_tool_boundaries.py` 追加中间件构建用例。`pytest tests/ -q` 98 项全绿。
+
 ## [1.3.0] - 2026-10-03
 
 ### 图表生成（声明式 ECharts + 数据引用化）
