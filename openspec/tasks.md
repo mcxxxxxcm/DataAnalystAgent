@@ -109,7 +109,7 @@
 | TASK-BACKLOG-001 | [todo] | schema linking 改 Embedding 语义检索 | `get_relevant_schemas` 仍基于硬编码关键词映射，表多时召回不稳（agreement 候选） | `core/database/schema_linking.py` |
 | TASK-BACKLOG-002 | [todo] | 同步版 agent 补消息裁剪中间件 | 与异步版对齐（agreement 候选） | `agent/` |
 | TASK-BACKLOG-003 | [todo] | golden 集扩展召回/关联/安全边界 case | 现行用例较少，回归覆盖不足（spec 状态表备注） | `eval/golden_queries.json` |
-| TASK-BACKLOG-004 | [todo] | `export_result` 接入统一 SQL 守卫 | 未走 `guard_query_sql`，存在并行校验路径（proposal §3.3 已知隐患） | 对应 change：`openspec/changes/export-result-guard/` |
+| TASK-BACKLOG-004 | [done] | `export_result` 接入统一 SQL 守卫 | 未走 `guard_query_sql`，存在并行校验路径（proposal §3.3 已知隐患） | 已落地：`tools/analysis_tools.py` 改用 `guard_query_sql`；测试 `test_export_result_rejects_system_table_without_db` |
 
 ---
 

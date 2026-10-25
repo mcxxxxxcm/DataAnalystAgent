@@ -107,7 +107,7 @@
 - [ ] `create_custom_chart` 默认不进工具集，仅 `enable_custom_chart=True` 才暴露（*现状：✅ CAP-SEC-007 / CAP-TOOL-005*）。
 - [ ] 新工具默认 read-only；权限子集 full/read_only/query_only 生效，未知 scope 回退 full（*现状：✅ CAP-TOOL-008*）。
 - [ ] 系统表（checkpoint/store）黑名单同源一致，禁止查询（*现状：✅ CAP-TOOL-009*）。
-- [ ] **[已知隐患 / 待改进]** `export_result` 未走统一 `guard_query_sql` 守卫（并行校验路径、未查系统表黑名单）——近期候选收口（`tools/analysis_tools.py:181`）。→ 收敛任务见 `openspec/tasks.md` TASK-BACKLOG-004（对应 change：`openspec/changes/export-result-guard/`）。
+- [ ] ~~`export_result` 未走统一 `guard_query_sql` 守卫（并行校验路径、未查系统表黑名单）~~（已收口：`tools/analysis_tools.py` 的 `export_result` 现已改用 `guard_query_sql`，测试 `test_export_result_rejects_system_table_without_db`；见 `openspec/tasks.md` TASK-BACKLOG-004）。
 
 ## 4. 术语定义（Glossary）
 

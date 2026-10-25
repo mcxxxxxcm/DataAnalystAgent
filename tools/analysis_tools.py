@@ -7,7 +7,7 @@
 设计：
 - 表名校验：通过 schema_manager.list_tables() 白名单，表名无法参数化，必须防注入
 - 阻塞型 pandas 计算放到 ThreadPoolExecutor，避免阻塞事件循环
-- export_result 复用 core/security 的 SQL 校验/清理（只读 + 自动 LIMIT）
+- export_result 与 query_database 同走 tools.boundaries.guard_query_sql 统一守卫
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from utils.export_manager import export_manager
 from tools.result_schemas import (
     StatisticalSummaryResult, DataProfileResult, ExportResult, dump_result,
 )
-from tools.boundaries import is_allowed_table
+from tools.boundaries import guard_query_sql, is_allowed_table
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis_")
 
@@ -193,18 +193,10 @@ async def export_result(query: str, file_format: str = "csv", filename: str = No
         if file_format not in ("csv", "xlsx"):
             return dump_result(ExportResult(success=False, error="file_format 仅支持 csv 或 xlsx"))
 
-        # 从子模块导入实例（core.security 包名的懒加载实例会被子模块遮蔽）
-        from core.security.sql_validator import sql_validator
-        from core.security.sql_sanitizer import sql_sanitizer
-
-        validation = sql_validator.validate(query)
-        if not validation.is_valid:
-            return dump_result(ExportResult(
-                success=False, error=f"SQL 校验失败: {validation.error_message}"
-            ))
-
-        sanitized = sql_sanitizer.sanitize(query)
-        final_sql = sanitized.sanitized_sql
+        # 统一走 guard_query_sql：校验 + 系统表白名单 + LIMIT 钳制 + 风险三态门禁
+        final_sql, guard_err = await guard_query_sql(query)
+        if guard_err:
+            return dump_result(ExportResult(success=False, error=guard_err))
 
         rows = await db_pool.fetch(final_sql, timeout=get_settings().sql_timeout)
         df = pd.DataFrame([dict(r) for r in rows])

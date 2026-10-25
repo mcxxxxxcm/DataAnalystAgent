@@ -7,6 +7,7 @@ tools.boundaries 边界层 + tools 权限子集单元测试
 """
 import os
 import sys
+import json
 import asyncio
 import pytest
 
@@ -73,6 +74,23 @@ def test_system_table_rejected(allowed_tables):
     _, error = _run(guard_query_sql, "SELECT * FROM checkpoints")
     assert error is not None
     assert "不允许的表" in error
+
+
+def test_export_result_rejects_system_table_without_db(allowed_tables, monkeypatch):
+    """导出行走 guard_query_sql：拒绝系统表，且未触库（db_pool.fetch 不被调用）。"""
+    from tools import analysis_tools
+    from tools.analysis_tools import export_result
+
+    async def _boom(*args, **kwargs):
+        raise AssertionError("不应触库")
+
+    # 把 analysis_tools 模块引用的 db_pool.fetch 替换为必抛错，断言未被调用
+    monkeypatch.setattr(analysis_tools.db_pool, "fetch", _boom)
+
+    res = _run(export_result.coroutine, "SELECT * FROM checkpoints")
+    parsed = json.loads(res)
+    assert parsed["success"] is False
+    assert "不允许的表" in parsed["error"]
 
 
 def test_multi_statement_rejected(allowed_tables):

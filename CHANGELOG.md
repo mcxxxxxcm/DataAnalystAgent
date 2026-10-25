@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 重构（安全收敛）—— export_result 接入统一 SQL 守卫
+
+- **消除导出并行校验路径**：`tools/analysis_tools.py` 的 `export_result` 弃用内联 `sql_validator.validate` + `sql_sanitizer.sanitize`，改与 `query_database` 同走 `tools.boundaries.guard_query_sql`。导出从此具备系统表白名单校验、风险三态 DENY 门禁、统一错误语义（对齐 agreement Avoid#4「不造重复实现」）。
+- **新增测试**：`tests/test_tool_boundaries.py` 追加 `test_export_result_rejects_system_table_without_db`（导出系统表被拒且未触库）。`pytest tests/ -q` 99 项全绿。
+- 架构备注：`guard_query_sql` 对校验失败 / 系统表拒绝 / DENY 三种情况统一返回 `(None, error)`，故导出统一走 `if guard_err` 分支即可覆盖；文件格式、下载接口与返回结构均未变。
+
 ### 确定性回归评测（坏 case / 错误案例 / 评测集）
 
 - **新增确定性意图路由器** `core/security/intent_guard.py`：把用户 NL 分类成 `query/chart/info/malicious/smalltalk/ambiguous/out_of_scope`，返回 `IntentVerdict`（含 deny/clarify 语义），用纯逻辑复用 `rank_relevant_tables` 判实体命中；NL 层「拒答 / 澄清 / 报错」从此有可单测、可进 CI 的确定性入口。
