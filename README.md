@@ -147,8 +147,15 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `DB_HOST` / `DB_PORT` | `localhost` / `5432` | 连接地址 |
 | `DB_NAME` | `analytics` | 库名 |
 | `DB_USER` / `DB_PASSWORD` | `postgres` / - | 账号密码 |
-| `DB_POOL_SIZE` | `10` | 连接池大小 |
-| `DB_MAX_OVERFLOW` | `20` | 最大溢出连接 |
+| `DB_POOL_SIZE` | `20` | 连接池最大大小 |
+| `DB_POOL_MIN_SIZE` | `5` | 连接池最小大小（预热） |
+| `DB_MAX_OVERFLOW` | `0` | 已废弃：asyncpg 无 overflow 概念，仅保留字段避免 .env 变量被忽略，请保持 0 |
+
+### 工具
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `TOOL_THREAD_POOL_SIZE` | `4` | 统计分析/图表构建等阻塞型工具共享的线程池 worker 数 |
 
 ### 安全
 
@@ -165,6 +172,10 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 |------|------|------|
 | `MAX_RETRY_ATTEMPTS` | `3` | SQL 失败重试次数 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `8080` | 服务监听 |
+| `API_WORKERS` | `1` | uvicorn worker 数；异步应用建议保持单 worker，多 worker 需经 `api/main.py` 字符串入口 |
+| `API_BACKLOG` | `2048` | uvicorn 等待队列 backlog 上限 |
+| `API_KEEPALIVE` | `5` | 连接 keep-alive 超时（秒） |
+| `API_GRACEFUL_SHUTDOWN` | `30` | 优雅停机等待（秒） |
 | `API_RELOAD` | `false` | uvicorn 热重载，仅开发建议开启 |
 | `API_AUTH_TOKEN` | 空 | 可选 Bearer Token 鉴权；留空不鉴权，生产建议设置 |
 | `CORS_ORIGINS` | `*` | 允许的跨域来源，逗号分隔；配置具体来源时自动附带凭据 |
@@ -185,6 +196,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | GET | `/api/stream/{thread_id}?query=` | SSE 流式执行过程 |
 | GET | `/api/state/{thread_id}` | 查看会话状态（含短期记忆历史） |
 | GET | `/api/health` | 健康检查（含数据库连通性） |
+| GET | `/api/stats` | 性能可观测：连接池与线程池状态、结果缓存条目数（压测调参用） |
 | GET | `/api/logs` | 查询工具调用日志 |
 | GET | `/api/checkpoints/stats` | checkpoint 存储统计 |
 | POST | `/api/checkpoints/cleanup` | 清理过期 checkpoint（dry_run 默认开启） |

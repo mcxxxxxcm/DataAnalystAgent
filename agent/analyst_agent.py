@@ -6,6 +6,8 @@
 """
 from typing import Optional, Dict, Any, List
 from functools import lru_cache
+import asyncio
+import threading
 
 from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import (
@@ -39,6 +41,10 @@ class AnalystAgentFactory:
         self.settings = get_settings()
         self._agent_cache: Dict[Any, Any] = {}
         self._async_agent_cache: Dict[Any, Any] = {}
+        # 并发冷启动去重：同名 name 在建的 asyncio.Task，避免多个协程重复 create_async_agent
+        self._async_agent_pending: Dict[Any, asyncio.Task] = {}
+        # 同步版并发保护（多线程调用 create_agent 时互斥）
+        self._sync_lock = threading.Lock()
         self.max_tokens = 4000
 
     def create_agent(
@@ -218,24 +224,40 @@ class AnalystAgentFactory:
 
     def get_cached_agent(self, name: str = "default") -> Any:
         """获取缓存的Agent实例（同步版本）"""
-        if name not in self._agent_cache:
-            self._agent_cache[name] = self.create_agent()
+        with self._sync_lock:
+            if name not in self._agent_cache:
+                self._agent_cache[name] = self.create_agent()
+        # 锁内构建完成后返回，不在锁内 return 避免不必要的锁持有
         return self._agent_cache[name]
 
     async def get_cached_async_agent(self, name: str = "default") -> Any:
         """
         获取缓存的Agent实例（异步版本）
 
-        使用 AsyncPostgresSaver，支持短期记忆
+        使用 AsyncPostgresSaver，支持短期记忆。
+        并发冷启动去重：同一 name 在建的任务共享同一个 asyncio.Task，
+        避免高并发首请求时多个协程同时 create_async_agent()。
         """
-        if name not in self._async_agent_cache:
-            self._async_agent_cache[name] = await self.create_async_agent()
-        return self._async_agent_cache[name]
+        if name in self._async_agent_cache:
+            return self._async_agent_cache[name]
+        if name in self._async_agent_pending:
+            return await self._async_agent_pending[name]
+        task = asyncio.create_task(self.create_async_agent())
+        self._async_agent_pending[name] = task
+        try:
+            agent = await task
+        except BaseException:
+            self._async_agent_pending.pop(name, None)
+            raise
+        self._async_agent_cache[name] = agent
+        self._async_agent_pending.pop(name, None)
+        return agent
 
     def clear_cache(self) -> None:
         """清除缓存"""
         self._agent_cache.clear()
         self._async_agent_cache.clear()
+        self._async_agent_pending.clear()
 
 
 agent_factory = AnalystAgentFactory()

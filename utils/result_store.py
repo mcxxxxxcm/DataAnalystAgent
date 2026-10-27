@@ -10,6 +10,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 # 有界缓存，带过期时间与容量上限，防止无界增长
+# 并发说明：单事件循环下这些是同步 dict 操作，协程只在 await 点切换、中途不可被打断，无真争用。
+# 因此故意不加锁（asyncio.Lock 只增开销）。若将来把序列化挪进线程池，需补 threading.Lock；
+# 若需多 worker/多进程跨进程共享结果，须改 Redis（config.redis_url，默认 None）。
 _store: Dict[str, Dict[str, Any]] = {}
 _expiry: Dict[str, float] = {}
 _TTL_SECONDS = 600  # 10 分钟过期
@@ -47,3 +50,8 @@ def clear() -> None:
     """清空缓存（测试用）"""
     _store.clear()
     _expiry.clear()
+
+
+def cache_size() -> int:
+    """当前缓存条目数（可观测/压测用）"""
+    return len(_store)

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### 并发压测与并发能力提升
+
+- **新增压测工具 `bench.loadtest`**（`bench/loadtest.py`，`py -m bench.loadtest`）：httpx+asyncio 并发压测，可压轻量端点 `/health`/`/api/stats`（框架吞吐基线）或真实 `/query` 全链路（调 LLM+DB）。支持 `--endpoint/--concurrency/--duration|--requests/--query|--query-file`、`--thread-mode {unique,reuse,per-worker}`、Bearer 鉴权、进度打印、`--json`；`endpoint=query` 内置费用/耗时警告，`--dry-run` 只打印计划不发包。
+- **新增 `/api/stats` 只读端点**：返回连接池（size/min/max/idle）、线程池配置、结果缓存条目数，供压测闭环调参。
+- **连接池/线程池去硬编码**：`core/database/pool.py` `min_size=5` 改为读 `DB_POOL_MIN_SIZE`；三处 `ThreadPoolExecutor(max_workers=2)`（`tools/analysis_tools.py`、`tools/chart_tools.py`、`utils/chart_sandbox.py`）统一读 `TOOL_THREAD_POOL_SIZE`（默认 4）。`DB_POOL_SIZE` 默认 10→20（`SQL_TIMEOUT=30` 下慢查询占连接更久，池满 acquire 排队天然节流）。
+- **`DB_MAX_OVERFLOW` 标废弃**：asyncpg 无 overflow 概念（原字段未实现），保留字段避免 `.env` 同名变量被 `extra="ignore"` 静默吞掉，默认置 0。
+- **修复 agent 缓存并发冷启动真洞**：`agent/analyst_agent.py` 异步版 `get_cached_async_agent` 用 futurization（pending task 去重），高并发首请求不再重复 `create_async_agent`；失败清 pending 防悬挂；同步版加 `threading.Lock`。
+- **结果缓存加并发说明注释**（`utils/result_store.py`、`tools/chart_tools.py`）：单事件循环无真争用故不加锁；若序列化进线程池改 `threading.Lock`，多 worker 共享改 Redis。
+- **uvicorn 调参**：`API_BACKLOG=2048`、`API_KEEPALIVE=5`、`API_GRACEFUL_SHUTDOWN=30`，`run_server.py` 与 `api/main.py` 透传（适配 uvicorn 0.52 的 `timeout_keep_alive`/`timeout_graceful_shutdown`）；默认仍单 worker。
+- **新增测试**：`tests/test_settings_defaults.py`、`tests/test_agent_cache_concurrency.py`、`tests/test_loadtest_cli.py`。`pytest tests/ -q` 109 项全绿。
+- 说明：本机 Postgres 未运行，真实 `/query` 压测冒烟暂缓（需 DB 可达后执行）。
+
 ### 重构（安全收敛）—— export_result 接入统一 SQL 守卫
 
 - **消除导出并行校验路径**：`tools/analysis_tools.py` 的 `export_result` 弃用内联 `sql_validator.validate` + `sql_sanitizer.sanitize`，改与 `query_database` 同走 `tools.boundaries.guard_query_sql`。导出从此具备系统表白名单校验、风险三态 DENY 门禁、统一错误语义（对齐 agreement Avoid#4「不造重复实现」）。

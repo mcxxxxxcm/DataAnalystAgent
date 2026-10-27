@@ -165,7 +165,10 @@ def main():
         host=settings.api_host,
         port=settings.api_port,
         workers=settings.api_workers,
-        reload=settings.api_reload
+        reload=settings.api_reload,
+        backlog=settings.api_backlog,
+        timeout_keep_alive=settings.api_keepalive,
+        timeout_graceful_shutdown=settings.api_graceful_shutdown
     )
 
 

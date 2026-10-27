@@ -47,8 +47,12 @@ class Settings(BaseSettings):
     db_name: str = Field(default="analytics", description="数据库名称")
     db_user: str = Field(default="postgres", description="数据库用户名")
     db_password: str = Field(default="", description="数据库密码")
-    db_pool_size: int = Field(default=10, ge=1, le=100, description="连接池大小")
-    db_max_overflow: int = Field(default=20, description="最大溢出连接数")
+    db_pool_size: int = Field(default=20, ge=1, le=100, description="连接池最大大小")
+    db_pool_min_size: int = Field(default=5, ge=1, le=100, description="连接池最小大小(预warm)")
+    db_max_overflow: int = Field(
+        default=0,
+        description="[已废弃] asyncpg 无 overflow 概念，本项目不实现，仅保留字段避免 .env 同名变量被 extra=ignore 静默吞掉。请设为 0。",
+    )
 
     # === 安全配置 ===
     sql_max_rows: int = Field(default=10000, ge=1, description="SQL查询最大返回行数，防止全表扫描")
@@ -73,6 +77,12 @@ class Settings(BaseSettings):
     default_tool_scope: str = Field(
         default="full",
         description="默认工具范围: full / read_only / query_only。full=全部；read_only=排除导出与自定义绘图；query_only=仅SQL查询工具"
+    )
+    tool_thread_pool_size: int = Field(
+        default=4,
+        ge=1,
+        le=32,
+        description="阻塞型工具计算(统计/数据探查/图表构建)共享的线程池 worker 数"
     )
 
     # === Schema Linking（相关表检索） ===
@@ -152,6 +162,9 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", description="API服务监听地址")
     api_port: int = Field(default=8080, description="API服务端口")
     api_workers: int = Field(default=1, description="API工作进程数，异步应用建议单worker")
+    api_backlog: int = Field(default=2048, ge=64, description="uvicorn 等待队列 backlog 上限")
+    api_keepalive: int = Field(default=5, ge=1, description="uvicorn keep-alive 超时(秒)")
+    api_graceful_shutdown: int = Field(default=30, ge=1, description="uvicorn 优雅停机等待(秒)")
     api_reload: bool = Field(
         default=False,
         description="是否启用 uvicorn 自动重载（仅开发环境建议开启）"

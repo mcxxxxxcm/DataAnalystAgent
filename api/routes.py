@@ -560,6 +560,34 @@ async def health_check():
     )
 
 
+@router.get("/stats")
+async def stats():
+    """
+    性能/并发可观测端点（只读，供压测闭环调参）
+
+    返回数据库连接池与线程池当前状态，不触业务查询。
+    """
+    from config.settings import get_settings
+    from utils.result_store import cache_size as result_cache_size
+
+    pool = db_pool.get_stats()
+    settings = get_settings()
+    return {
+        "db_pool": {
+            "size": pool.size,
+            "min_size": pool.min_size,
+            "max_size": pool.max_size,
+            "idle_size": pool.idle_size,
+        },
+        "thread_pool": {
+            "tool_thread_pool_size": settings.tool_thread_pool_size,
+        },
+        "result_cache": {
+            "entries": result_cache_size(),
+        },
+    }
+
+
 @router.get("/logs", response_model=LogResponse)
 async def get_logs(
         limit: int = Query(default=10, ge=1, le=100),

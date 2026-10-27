@@ -25,7 +25,9 @@ from tools.result_schemas import (
 )
 from tools.boundaries import guard_query_sql, is_allowed_table
 
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis_")
+_executor = ThreadPoolExecutor(
+    max_workers=get_settings().tool_thread_pool_size, thread_name_prefix="analysis_"
+)
 
 
 async def _fetch_table(table_name: str) -> pd.DataFrame:

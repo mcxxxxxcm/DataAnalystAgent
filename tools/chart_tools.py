@@ -18,10 +18,17 @@ from tools.result_schemas import ChartResult, dump_result
 
 from concurrent.futures import ThreadPoolExecutor
 
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_")
+from config.settings import get_settings
+
+_executor = ThreadPoolExecutor(
+    max_workers=get_settings().tool_thread_pool_size, thread_name_prefix="chart_"
+)
 
 
 # 全局缓存，用于存储生成的 ECharts option（带 TTL 与上限，防止无界增长）
+# 并发说明：单事件循环下这些是同步 dict 操作，协程只在 await 点切换、中途不可被打断，无真争用。
+# 因此故意不加锁（asyncio.Lock 只增开销）。若将来把序列化挪进线程池，需补 threading.Lock；
+# 若需多 worker/多进程跨进程共享本缓存，须改 Redis（config.redis_url，默认 None）。
 _spec_cache: Dict[str, Dict[str, Any]] = {}
 _spec_expiry: Dict[str, float] = {}
 _SPEC_TTL_SECONDS = 600  # 10 分钟过期

@@ -33,4 +33,7 @@ print("  - FastAPI app created")
 
 print("\nStep 6: Starting server...")
 import uvicorn
-uvicorn.run(app, host=settings.api_host, port=settings.api_port)
+uvicorn.run(app, host=settings.api_host, port=settings.api_port,
+            backlog=settings.api_backlog,
+            timeout_keep_alive=settings.api_keepalive,
+            timeout_graceful_shutdown=settings.api_graceful_shutdown)

@@ -7,6 +7,7 @@
 import io
 import base64
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from config.settings import get_settings
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -22,7 +23,9 @@ CHART_STYLES = {
 }
 
 # 执行绘图代码的线程池（exec 在子线程中运行，便于真正实施超时）
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_exec_")
+_executor = ThreadPoolExecutor(
+    max_workers=get_settings().tool_thread_pool_size, thread_name_prefix="chart_exec_"
+)
 
 
 def get_safe_globals(data: List[Dict[str, Any]] = None) -> Dict[str, Any]:

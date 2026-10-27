@@ -30,6 +30,10 @@ class DatabasePool:
 
     这是基础设施，不暴露给LLM
     只被 tools/ 和 middleware/ 内部调用
+
+    注意：本池只覆盖应用查询。checkpointer 与 store 各自经
+    AsyncPostgresSaver/Store 自建独立 asyncpg 池，压测核对连接数时
+    需加总(见 openspec/agreement.md Avoid 与 bench 文档)。
     """
 
     _instance: Optional['DatabasePool'] = None
@@ -54,7 +58,7 @@ class DatabasePool:
             database=settings.db_name,
             user=settings.db_user,
             password=settings.db_password,
-            min_size=5,
+            min_size=settings.db_pool_min_size,
             max_size=settings.db_pool_size,
             command_timeout=settings.sql_timeout,
         )
