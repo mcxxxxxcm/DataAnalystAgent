@@ -15,6 +15,7 @@
 - [API 接口](#api-接口)
 - [安全设计](#安全设计)
 - [前端界面](#前端界面)
+- [并发压测](#并发压测)
 - [已知问题 / 改进方向](#已知问题--改进方向)
 
 ---
@@ -261,6 +262,28 @@ py -m eval.mine_badcases   # 扫 logs/tool_calls.jsonl，dump 失败调用供沉
 - 查询结果表格化呈现
 - 图表图片展示
 - 高风险操作的人工审核弹窗（approve / reject）
+
+---
+
+## 并发压测
+
+内置压测工具 `bench/loadtest.py`（httpx + asyncio），用一个命令打本服务并输出 QPS / 延迟分位 / 错误率。无需额外依赖。
+
+```bash
+# 框架吞吐基线（不触 LLM/DB）
+py -m bench.loadtest --endpoint health --concurrency 50 --requests 500
+
+# 真实 Text2SQL 全链路（调 LLM+DB，耗时与费用较高，先小量验证）
+py -m bench.loadtest --endpoint query --query '本月销售额是多少' \
+    --concurrency 5 --requests 50
+
+# 仅打印执行计划、不发包（先看要压什么）
+py -m bench.loadtest --endpoint query --query '本月销售额是多少' --dry-run
+```
+
+常用参数：`--endpoint {health,ping,query}`（默认 health）、`--concurrency`（health 默认 20 / query 默认 5）、`--duration|--requests`（二选一控制总量）、`--thread-mode {unique,reuse,per-worker}`（thread_id 策略，默认 unique）、`--token`、`--json`。
+
+调参闭环：压测前/中查看 `GET /api/stats`，核对连接池（size/min/max/idle）与结果缓存，避免连接数超阈值或内存缓存放不下。
 
 ---
 
