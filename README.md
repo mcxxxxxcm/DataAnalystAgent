@@ -1,6 +1,6 @@
 # Data Analyst Agent · 智能数据分析助手
 
-一个 **Text2SQL 架构** 的自然语言数据分析助手。用户用中文提问，Agent 自动完成「理解意图 → 检索表结构 → 生成并校验 SQL → 执行查询 → 展示结果/图表」的完整闭环，同时内置 **人工审核（Human-in-the-Loop）**、**SQL 多层安全校验** 与 **多轮对话短期记忆**。
+一个 **Text2SQL 架构** 的自然语言数据分析助手。用户用中文提问，Agent 自动完成「理解意图 → 检索表结构 → 生成并校验 SQL → 执行查询/写操作 → 展示结果/图表」的完整闭环，同时内置 **人工审核（Human-in-the-Loop）**、**SQL 多层安全校验**、**受边界保护的数据写操作（增删改）** 与 **多轮对话短期记忆**。
 
 技术栈：`LangChain / LangGraph (Deep Agents)` + `FastAPI` + `PostgreSQL/asyncpg`。
 
@@ -26,6 +26,7 @@
 |------|------|
 | 🧠 自然语言转 SQL | Agent 根据用户查询自动检索相关表结构并生成 SQL |
 | 🔒 多层 SQL 安全校验 | AST 解析 + 关键字/危险函数黑名单 + 注入检测 + 自动注入 LIMIT |
+| ✍️ 增删改写操作 | `query_database` 支持 INSERT/UPDATE/DELETE（`ENABLE_SQL_WRITE=true` 开启），返回受影响行数；DELETE/UPDATE 必须带 WHERE，写后失效 schema 缓存 |
 | 👤 人工审核 (HITL) | 写操作 / 高风险查询在执行前拦截，由人工 approve/reject |
 | 🧵 多轮对话短期记忆 | 基于 `AsyncPostgresSaver`，会话（thread_id）上下文持久化到 PostgreSQL |
 | 📊 自动图表 | `create_chart` 生成柱状图/折线图/饼图/散点图，图片 base64 返回前端 |

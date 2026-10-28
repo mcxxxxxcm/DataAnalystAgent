@@ -25,12 +25,33 @@ from utils.result_store import set_result
 _SELECT_HARD_CAP = get_settings().sql_max_rows
 
 
+def _is_write_dml(sql: str) -> str:
+    """识别写操作 DML 类型（INSERT/UPDATE/DELETE）；非写操作返回空串。"""
+    head = str(sql).lstrip().upper()
+    for kw in ('INSERT', 'UPDATE', 'DELETE'):
+        if head.startswith(kw):
+            return kw
+    return ""
+
+
+def _parse_affected_rows(tag: str) -> int:
+    """解析 asyncpg execute 返回的 tag（形如 'INSERT 0 1' / 'DELETE 3'）末尾的受影响行数。"""
+    parts = str(tag).split()
+    if parts:
+        try:
+            return int(parts[-1])
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
 @tool
 async def query_database(query: str) -> str:
-    """执行 SQL 查询。
+    """执行 SQL。
     参数: query - SQL 语句。
-    说明: 语句将先经安全校验（仅允许 SELECT，写操作需 enable_sql_write=True；
-    禁止 DROP/TRUNCATE/ALTER/CREATE 及危险函数/注入），并自动附加 LIMIT 防止全表扫描。
+    说明: 语句将先经安全校验（SELECT 默认放行；写操作需 enable_sql_write=True；
+    禁止 DROP/TRUNCATE/ALTER/CREATE 及危险函数/注入）。SELECT 自动附加 LIMIT 防止全表扫描；
+    写操作（INSERT/UPDATE/DELETE）返回受影响行数，UPDATE/DELETE 必须带 WHERE 限定范围。
     """
     start_time = time.time()
     timeout = get_settings().sql_timeout
@@ -38,6 +59,22 @@ async def query_database(query: str) -> str:
         sql, error = await guard_query_sql(query)
         if error:
             result = QueryResult(success=False, error=error, execution_time=time.time() - start_time)
+            return dump_result(result)
+
+        write_type = _is_write_dml(sql)
+
+        if write_type:
+            # 写操作：执行 + 写后失效 schema 缓存（刷新 stale 的 row_count/sample_data）；
+            # 结果不入 result_store（写结果不适合作图表数据源，避免越界）。
+            tag = await db_pool.execute(sql, timeout=timeout)
+            affected = _parse_affected_rows(tag)
+            schema_manager.clear_cache()
+            result = QueryResult(
+                success=True, row_count=affected,
+                data=[{"操作": write_type, "受影响行数": affected}],
+                columns=["操作", "受影响行数"],
+                execution_time=time.time() - start_time,
+            )
             return dump_result(result)
 
         rows = await db_pool.fetch(sql, timeout=timeout)

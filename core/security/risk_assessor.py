@@ -118,15 +118,15 @@ class RiskAssessor:
             recommendations.append(f"涉及{complexity['table_count']}个表，请确认关联关系正确")
 
         # 3. 写操作
-        is_write = any(kw in sql_upper for kw in ['INSERT', 'UPDATE', 'DELETE'])
-        if is_write:
+        write_type = next((kw for kw in ['INSERT', 'UPDATE', 'DELETE'] if kw in sql_upper), None)
+        if write_type:
             risk_factors.append(RiskFactor.WRITE_OPERATION)
-            recommendations.append("这是写操作，请确认影响范围")
+            recommendations.append(f"这是写操作({write_type})，请确认影响范围")
 
-        # 4. 无WHERE条件
-        if is_write and 'WHERE' not in sql_upper:
+        # 4. 无WHERE条件：仅 UPDATE/DELETE 必须带 WHERE 限定范围；INSERT 本就不该有 WHERE（插入新行）
+        if write_type in ('UPDATE', 'DELETE') and 'WHERE' not in sql_upper:
             risk_factors.append(RiskFactor.NO_WHERE_CLAUSE)
-            recommendations.append("写操作缺少WHERE条件，将影响全表！")
+            recommendations.append(f"{write_type} 操作缺少WHERE条件，将影响全表！")
 
         # 5. 敏感表
         tables = sql_sanitizer.extract_tables(sql)

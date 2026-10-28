@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### 写操作支持（INSERT / UPDATE / DELETE，受边界保护）
+
+- **`query_database` 支持增删改写操作**（`tools/sql_tools.py`）：`guard_query_sql` 通过后按 DML 分派——写操作走 `db_pool.execute`、解析受影响行数（asyncpg tag 尾部整数）返回 `QueryResult(row_count=受影响行数, data=[{操作, 受影响行数}])`；`await schema_manager.clear_cache()` 写后失效 schema 缓存刷新 stale 行数/样本；写结果**不入 `result_store`**（写结果不适合作图表数据源）。SELECT 路径（`db_pool.fetch` + `set_result`）不变。
+- **修 risk_assessor INSERT 误杀**（`core/security/risk_assessor.py`）：原「写操作无 WHERE → NO_WHERE_CLAUSE → CRITICAL → DENY」会把 `INSERT`（本就不该有 WHERE）一并拒掉，「添加数据」永远不可用。现判定限定为 UPDATE / DELETE；INSERT 判 HIGH→CONFIRM（进人工审核），DELETE/UPDATE 无 WHERE 仍 CRITICAL→DENY 立即拒绝，安全基线不降。
+- **写操作默认仍关**：复用既有 `ENABLE_SQL_WRITE`（默认 `false`）放行写校验；写操作天然走 HITL（`query_database` 在 `tools_requiring_approval`）强制人工 approve/reject。双保险（DENY 门禁 + 人审）。
+- **提示词写操作边界**（`agent/prompts.py`）：新增写操作小节——INSERT 用显式列名 `VALUES`；DELETE/UPDATE 必须带 WHERE 限定范围；写会触发人审、完成后回述受影响行数；不硬编码示例表名。
+- **新增测试**：`tests/test_risk_assessor.py`（INSERT 无 WHERE 不 DENY / DELETE·UPDATE 无 WHERE 仍 DENY / 带 WHERE 写 CONFIRM）、`tests/test_sql_tools_write.py`（写分派返回行数、清 schema 缓存、不入 result_store、SELECT 路径不受影响）。`pytest tests/ -q` 121 项全绿。
+
 ### 并发压测与并发能力提升
 
 - **新增压测工具 `bench.loadtest`**（`bench/loadtest.py`，`py -m bench.loadtest`）：httpx+asyncio 并发压测，可压轻量端点 `/health`/`/api/stats`（框架吞吐基线）或真实 `/query` 全链路（调 LLM+DB）。支持 `--endpoint/--concurrency/--duration|--requests/--query|--query-file`、`--thread-mode {unique,reuse,per-worker}`、Bearer 鉴权、进度打印、`--json`；`endpoint=query` 内置费用/耗时警告，`--dry-run` 只打印计划不发包。
