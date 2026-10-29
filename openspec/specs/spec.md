@@ -38,6 +38,8 @@
 | CAP-SEC-005 | 结构化 SQL 错误自纠：13 类错误分类 + SQLSTATE + 修复建议，回喂 LLM 驱动重试 | ✅ `sql_error.py` |
 | CAP-SEC-006 | 写操作默认不放行：`enable_sql_write` 为 False 时写 SQL 校验失败 | ✅ |
 | CAP-SEC-007 | 任意代码执行默认关：`create_custom_chart` 仅显式 `enable_custom_chart=True` 才进工具集 | ✅ `tools/__init__.py` |
+| CAP-SEC-008 | 写操作受边界保护：`query_database` 分派 INSERT/UPDATE/DELETE → 返回受影响行数、写后失效 schema 缓存、不入 result_store；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | ✅ `tools/sql_tools.py` |
+| CAP-SEC-009 | 确定性意图路由器 `intent_guard`：NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，带 deny/clarify 语义；`ENABLE_INTENT_ROUTER` 默认关、当前仅评测直调未接线 `/query` | ✅ `core/security/intent_guard.py` |
 
 ## 4. Tools（tools/）
 
@@ -82,6 +84,8 @@
 | CAP-API-003 | CORS 安全：`allow_origins` 从配置读取；`*` 时禁用 credentials，避免 `[*]+credentials` 组合 | ✅ |
 | CAP-API-004 | 前端：查询交互 + 会话管理 + ECharts 矢量渲染 + HITL 批准/拒绝界面 | ✅ `static/index.html` |
 | CAP-API-005 | `/api/query` 返回提取最后一个成功查询的结果（columns / data / markdown 表格） | ✅ |
+| CAP-API-006 | 可观测只读端点 `GET /api/stats`：连接池（size/min/max/idle）、线程池配置、结果缓存条目数（供压测闭环调参） | ✅ `api/routes.py` |
+| CAP-API-007 | checkpoint 维护端点：`/api/checkpoints/stats`、`/api/checkpoints/cleanup`（dry_run 默认开）、`/api/checkpoints/cleanup-orphaned` | ✅ `api/routes.py` |
 
 ## 8. Utils
 
@@ -91,14 +95,15 @@
 | CAP-UTIL-002 | ECharts option 构建器 `build_echarts_option`（dataset + encode，字段缺失精确报错） | ✅ `utils/chart_spec.py` |
 | CAP-UTIL-003 | 导出管理 export_manager（CSV/XLSX，`export_max_rows` 采样上限） | ✅ |
 | CAP-UTIL-004 | 图表代码沙箱 `execute_chart_code`（安全 globals，非危险） + checkpoint 清理 | ✅ `chart_sandbox.py` / `checkpoint_cleanup.py` |
+| CAP-UTIL-005 | 并发压测工具 `bench.loadtest`：health/ping/query 端点、thread-mode（unique/reuse/per-worker）、`--dry-run`、Bearer 鉴权 | ✅ `bench/loadtest.py` |
 
 ## 9. Eval & Tests
 
 | ID | 需求 | 现状 |
 |----|------|------|
-| CAP-EVAL-001 | Text2SQL 回归评测：`eval/run_eval.py` 跑 golden 用例 | ✅ |
-| CAP-EVAL-002 | Golden 集覆盖表检索 / 聚合 / 关联 / 写操作拒绝 / 结构检索 5 例 | ✅ `golden_queries.json` |
-| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec | ✅ `tests/`（76 项通过） |
+| CAP-EVAL-001 | Text2SQL 回归评测：`eval/run_eval.py` 多场景聚合 harness，跑分类语料 | ✅ |
+| CAP-EVAL-002 | 分类语料：`eval/cases/`（schema_linking / security_deny / routing_guard 三文件），另含 `mine_badcases.py` 扫日志 dump 坏 case | ✅ `schema_linking.json` / `security_deny.json` / `routing_guard.json` |
+| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 | ✅ `tests/`（121 项通过） |
 | CAP-EVAL-004 | `pytest tests/ -q` 为改动硬门槛 | ✅ |
 
 ---
@@ -108,11 +113,11 @@
 | 能力域 | 状态 | 备注（候选/风险） |
 |--------|------|-------------------|
 | Configuration | implemented | — |
-| core/database | implemented | `get_relevant_schemas` 仍基于硬编码关键词映射，候选改 Embedding 语义检索（agreement 未实装项） |
-| core/security | implemented | — |
-| Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；同步版 agent 缺消息裁剪中间件（见 agreement 候选） |
-| Agent | implemented | — |
+| core/database | implemented | `get_relevant_schemas` 仍基于硬编码关键词映射，候选改 Embedding 语义检索（见 tasks.md TASK-BACKLOG-001） |
+| core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器 `intent_guard` 已实现但未接线 `/query`（CAP-SEC-009，接线列为后续 TASK-BACKLOG-004） |
+| Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008） |
+| Agent | implemented | 同步版 agent 缺消息裁剪中间件（见 tasks.md TASK-BACKLOG-002） |
 | Middleware | implemented | — |
-| API + Frontend | implemented | — |
-| Utils | implemented | — |
-| Eval & Tests | implemented | Golden 用例较少，可扩展更多召回/关联/安全边界 case |
+| API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）与 checkpoint 维护端点（CAP-API-007） |
+| Utils | implemented | 新增 `bench.loadtest` 压测工具（CAP-UTIL-005） |
+| Eval & Tests | implemented | 语料分类化（`eval/cases/`）；含写操作/意图路由/并发回归测试；Golden 仍可扩展更多召回/关联/边界 case（TASK-BACKLOG-003） |

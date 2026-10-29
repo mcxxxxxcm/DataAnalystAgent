@@ -34,6 +34,18 @@
 
 > template 见 `openspec/changes/_TEMPLATE/`。复制它生成新 change。
 
+### 2.5 Definition of Done（完成定义，合入前逐条过）
+
+一个 change「做完」不是代码能跑就行，合入/归档前须全部满足：
+
+1. `recipe.md` 各步 Validation 均已过（执行时逐条打 `[x]`）。
+2. 带对应测试，`pytest tests/ -q` 全绿。
+3. 用户可见变更已更新 `README.md`；值得记录的历史变更已追加 `CHANGELOG.md`。
+4. **能力基线同步**：新增/改动的能力已回填 `specs/spec.md` 的 CAP，并在 `tasks.md` 关掉对应 `[todo]` / 登记 `[done]` TASK（见 §6）。
+5. change 目录已移出 `changes/` → `archived/` 归档。
+
+任一未满足不放行。这条规则也约束「改规范」本身的 change（dogfooding）。
+
 ## 3. Safety Red Lines（安全红线，不可妥协）
 
 - **SQL 一切工具调用**必须经过 `core/security` 的多层校验（AST / 关键字与危险函数黑名单 / 注入检测 / 自动 LIMIT）与 `RiskAssessor` 风险评级。
@@ -65,5 +77,14 @@
    → 新工具先确认没有已有工具能做同样事。
 5. **声明了 timeout 就要真正生效**——用线程/进程边界兜住 `exec`，别让死循环卡死进程。
 6. **LLM 用的 schema 检索有可靠上限**：`schema_max_relevant_tables` 控制召回量，避免一次塞进过载上下文。
+7. **不要与既有文档漂移 / 各写一套**：同一候选曾在 agreement 文末、design ADR、spec 状态表、tasks backlog 各抄一遍，漂移难维护（如 golden 语料迁移后三处仍引用旧路径）。
+   → 新能力只在一处建 CAP + 一处登记 TASK；候选只存在 `tasks.md` backlog（含优先级/成本/收益），design/spec/agreement 一律用指针引用，发现 stale 立即修（见 §6）。
 
-> 更多候选（未实装）：`get_relevant_schemas` 仍基于硬编码关键词映射，建议后续改 Embedding 语义检索；同步版 `create_agent` 缺消息裁剪中间件。
+## 6. Keep Docs in Sync（保持文档与代码一致，防漂移）
+
+治理文档（`specs/spec.md`·`tasks.md`·`design.md`·`terminology.md`·`agreement.md`）是**活文档**，须与代码基线同步，否则失效甚至误导：
+
+- **归档 change 时回填**：合入一个 change，若它引入/改动能力，就把 `spec.md` 对应 CAP、`tasks.md` 对应 TASK 一并更新，并在 `terminology.md` 补术语（见 §2.5 DoD 第 4 条）。
+- **单一来源**：同一事实（候选、术语、路径）只允许维护一处。候选只在 `tasks.md` backlog；design ADR 只保决策与理由，不重复候选清单；spec 状态表对 backlog 用指针引用。
+- **发现 stale 立即修**：读到本地文档出现「引用的文件/计数/能力已不存在或过时」，顺手修正并归因（删除引用、更新计数），不等到下次归档。
+- 引用**真实文件与真实数字**：不引用不存在的文件；测试数等写「当前 `pytest tests/ -q` 计数」，或注明「以运行时为准」，避免写死过期。

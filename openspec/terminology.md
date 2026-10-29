@@ -17,7 +17,9 @@
 | TERM-010 | 载荷裁剪 | 跨轮压缩 ToolMessage，避免上下文膨胀 | middleware |
 | TERM-011 | schema_max_relevant_tables | schema 召回上限 | 防上下文过载 |
 | TERM-012 | sql_max_rows | 自动 LIMIT 的上限 | 防全表扫描 |
-| TERM-013 | golden 集 | 回归评测的标准用例集 | `eval/golden_queries.json` |
+| TERM-013 | 评测语料集 | 回归评测的分类标准用例集 | `eval/cases/`（schema_linking / security_deny / routing_guard 三文件）；golden 旧路径已弃 |
+| TERM-014 | 意图路由器 intent_guard | 确定性 NL 意图分类（query/chart/info/malicious/smalltalk/ambiguous/out_of_scope），带 deny/clarify 语义 | `core/security/intent_guard.py`；`ENABLE_INTENT_ROUTER` 默认关 |
+| TERM-015 | 写操作边界 | query_database 分派 INSERT/UPDATE/DELETE → 返回受影响行数；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | `tools/sql_tools.py` / `core/security/risk_assessor.py` |
 
 ---
 

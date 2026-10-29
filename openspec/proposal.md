@@ -34,7 +34,7 @@
 
 - **业务用户（市场 / 运营 / 销售等非技术）**：用 Web 前端提问、看结果与图表。诉求：免写 SQL、结果一眼看懂、图表能多角度切。
 - **研发 / 数据负责人**：通过 API 与配置接入、处理 HITL 审批、从审计日志追溯。诉求：可控、可审计、不越权执行。
-- **评估 / 维护者（AI / 工程）**：靠 `eval/golden_queries.json` 回归 + `tests/` 单测保障不回归。诉求：改动可自动验证。
+- **评估 / 维护者（AI / 工程）**：靠 `eval/cases/` 分类语料回归 + `tests/` 单测保障不回归。诉求：改动可自动验证。
 
 ## 2. 功能范围（Functional Scope）
 
@@ -85,7 +85,7 @@
 - [ ] 同 thread 多轮短期记忆与 remember/recall 长期记忆可用（*现状：✅ CAP-MID-003/004*）。
 - [ ] 导出 CSV/XLSX 可经 `/api/export/{file}` 下载（*现状：✅ CAP-UTIL-003*）。
 - [ ] 配置 `API_AUTH_TOKEN` 后全 `/api/**` 需 Bearer 鉴权；CORS `*` 时禁用 credentials（*现状：✅ CAP-API-002/003*）。
-- [ ] golden 查询回归 + `pytest tests/ -q` 全绿（*现状：✅ 76 项通过*）。
+- [ ] golden 查询回归 + `pytest tests/ -q` 全绿（*现状：✅ `tests/` 121 项通过，以 `py -m pytest tests/ -q` 实际计数为准*）。
 
 ### 3.2 性能 / 成本验收
 

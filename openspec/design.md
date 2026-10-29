@@ -96,7 +96,7 @@
 
 - `get_relevant_schemas` 改 Embedding 语义检索（TASK-BACKLOG-001，落点 `core/database/schema_linking.py`）
 - 同步版 agent 补消息裁剪中间件（TASK-BACKLOG-002，落点 `agent/`）
-- Golden 测试集扩展召回 / 关联 / 安全边界 case（TASK-BACKLOG-003，落点 `eval/golden_queries.json`）
+- 评测语料扩展召回 / 关联 / 安全边界 case（TASK-BACKLOG-003，落点 `eval/cases/`）
 - `export_result` 接入统一 SQL 守卫（TASK-BACKLOG-004，对应 change：`openspec/changes/export-result-guard/`）
 
 ---

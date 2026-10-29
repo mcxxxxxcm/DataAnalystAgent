@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### SDD 开发规范完善（一致性 + 关键流程 + 优化路线）
+
+- **修规范文档 stale 到代码基线**：`openspec/specs/spec.md` / `tasks.md` / `terminology.md` / `proposal.md` / `design.md` 中已删除的 `eval/golden_queries.json` 迁移为 `eval/cases/`（schema_linking / security_deny / routing_guard）；测试数由写死 76 改为当前 `tests/` 121 项（注明以运行时为准）。
+- **补新能力 CAP/TASK/TERM**：`spec.md` 新增 `CAP-SEC-008 写操作受边界保护`、`CAP-SEC-009 意图路由器 intent_guard`、`CAP-API-006 /api/stats`、`CAP-API-007 checkpoint 维护端点`、`CAP-UTIL-005 bench.loadtest`；`tasks.md` 对应补 `TASK-SEC-008/009`、`TASK-API-006/007`、`TASK-UTIL-005`；`terminology.md` 新增 `TERM-014 意图路由器`、`TERM-015 写操作边界`。
+- **规范流程补关键约束**：`openspec/agreement.md` 新增 `§2.5 Definition of Done`（合入前 5 条 checklist）、`§6 Keep Docs in Sync`（归档时回填 CAP/TASK/TERM、单一来源、发现 stale 立即修）、`§5 Avoid#7`（不让治理文档漂移 / 各写一套）。
+- **后续优化方向扩为带优先级路线**：`openspec/tasks.md` backlog 由 3 项扩到 10 项（B001..B010），每项含【优先级 P0-P2 / 成本 / 收益 / 关联 CAP / 落点】，覆盖 Embedding schema 检索、意图路由器接线 `/query`、LLM 提示词缓存、多 worker + Redis、可观测 metrics/追踪、写操作 RETURNING 增强、更严注入检测 + 坏 case 自动扩集、RBAC 与速率限制等。
+- 纯治理文档改动，无代码/API/配置变更；`pytest tests/ -q` 121 项全绿。change 见 `openspec/archived/sdd-conventions-polish/`。
+
 ### 写操作支持（INSERT / UPDATE / DELETE，受边界保护）
 
 - **`query_database` 支持增删改写操作**（`tools/sql_tools.py`）：`guard_query_sql` 通过后按 DML 分派——写操作走 `db_pool.execute`、解析受影响行数（asyncpg tag 尾部整数）返回 `QueryResult(row_count=受影响行数, data=[{操作, 受影响行数}])`；`await schema_manager.clear_cache()` 写后失效 schema 缓存刷新 stale 行数/样本；写结果**不入 `result_store`**（写结果不适合作图表数据源）。SELECT 路径（`db_pool.fetch` + `set_result`）不变。

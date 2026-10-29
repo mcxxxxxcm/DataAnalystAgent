@@ -300,7 +300,9 @@ py -m bench.loadtest --endpoint query --query '本月销售额是多少' --dry-r
 | 4 | `get_relevant_schemas` 靠硬编码关键词 | ⏳ 待做：建议改为基于 Embedding 语义检索 |
 | 5 | 系统提示词写死示例表，与真实 Schema 脱节 | ✅ 已移除硬编码示例表，改为动态依赖 `get_relevant_schemas` |
 | 6 | `chart_tools` 与 `viz_tools` 重复实现 | ✅ 已删除 `viz_tools.py`，收敛为单一实现 |
-| 7 | 缺少测试 | ✅ 已为 `core/security` 增加单元测试（`tests/test_security.py`） |
+| 7 | 缺少测试 | ✅ 已具备分类回归评测（`eval/cases/`）+ `tests/` 121 项单测，`pytest tests/ -q` 为改动硬门槛 |
+| 8 | 后续优化方向 | 🗺️ 带优先级（P0-P2）路线见 `openspec/tasks.md` 候选/backlog（Embedding 召回、意图路由器接线、LLM 提示词缓存、可观测、多 worker+Redis 等 10 项） |
+| 9 | SDD 规范维护 | 📐 SDD 治理文档与代码基线同步（`agreement.md` §2.5 DoD / §6 防漂移）；归档 change 时回填 CAP/TASK/TERM |
 
 ---
 
