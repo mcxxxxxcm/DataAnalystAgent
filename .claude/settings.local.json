@@ -108,7 +108,24 @@
       "Bash(python *)",
       "Bash(py *)",
       "Bash(API_KEY=test-key-for-unit-test py -m pytest tests/test_sql_tools.py tests/test_schema_cache.py tests/test_tool_boundaries.py -q)",
-      "Bash(API_KEY=test-key-for-unit-test py -m pytest tests/ -q)"
+      "Bash(API_KEY=test-key-for-unit-test py -m pytest tests/ -q)",
+      "Bash([ -f \"$d/Scripts/python.exe\" ])",
+      "Bash([ -f \"$d/bin/python\" ])",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(py run_server.py)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -m 3 http://127.0.0.1:8085/api/health)",
+      "Bash(curl -s -m 3 http://127.0.0.1:8085/api/stats)",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //PID 786)",
+      "Bash(rm -f bench_smoke.log)",
+      "Bash(git config *)",
+      "Bash(API_KEY=test py -m pytest tests/test_risk_assessor.py tests/test_sql_tools_write.py tests/test_security.py -q)",
+      "Bash(API_KEY=test py -m pytest tests/test_sql_tools_write.py -q)",
+      "Bash(API_KEY=test py -m pytest tests/ -q)"
     ]
   }
 }
