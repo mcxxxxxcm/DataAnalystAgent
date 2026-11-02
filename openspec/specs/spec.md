@@ -116,7 +116,7 @@
 | core/database | implemented | `get_relevant_schemas` 仍基于硬编码关键词映射，候选改 Embedding 语义检索（见 tasks.md TASK-BACKLOG-001） |
 | core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器 `intent_guard` 已实现但未接线 `/query`（CAP-SEC-009，接线列为后续 TASK-BACKLOG-004） |
 | Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008） |
-| Agent | implemented | 同步版 agent 缺消息裁剪中间件（见 tasks.md TASK-BACKLOG-002） |
+| Agent | implemented | 同步/异步两版能力对齐：载荷裁剪（condense_tool_results）+ 长上下文摘要 + 瞬时重试均具备 |
 | Middleware | implemented | — |
 | API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）与 checkpoint 维护端点（CAP-API-007） |
 | Utils | implemented | 新增 `bench.loadtest` 压测工具（CAP-UTIL-005） |

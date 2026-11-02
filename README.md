@@ -50,8 +50,7 @@
 工具层          tools/                      暴露给 LLM 的可调用工具
    ├─ sql_tools.py     query_database / list_tables / get_table_schema /
    │                   get_sample_data / get_relevant_schemas
-   ├─ chart_tools.py   create_chart / create_custom_chart（chart_id 缓存）
-   └─ viz_tools.py     旧的独立图表工具（create_*_chart，当前未纳入 ALL_TOOLS）
+   └─ chart_tools.py   create_chart / create_custom_chart（chart_id 缓存）
 ─────────────────────────────────────────────────────────────────────────
 Agent 层        agent/                      基于 create_agent (Deep Agents) 组装
    ├─ analyst_agent.py  工厂：同步(内存)/异步(Postgres) 两种 Agent

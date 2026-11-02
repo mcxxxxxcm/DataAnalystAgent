@@ -116,7 +116,6 @@
 | ID | 优先级 | 候选任务 | 核心动机 | 落点 |
 |----|--------|----------|----------|------|
 | B001 | P1 | Embedding schema 语义检索 | `get_relevant_schemas` 硬编码关键词映射，表多召回不稳 | `core/database/schema_linking.py` |
-| B002 | P1 | 同步 agent 补消息裁剪中间件 | 与异步版能力对齐，防长对话 token 超限 | `agent/` |
 | B003 | P2 | 评测语料扩集（召回/关联/边界） | 用例较少、回归覆盖不足 | `eval/cases/*` |
 | B004 | P1 | 意图路由器接线 `/query` 前置拒答/澄清 | `intent_guard` 已实现未用，运行时仍裸走 LLM | `api/routes.py` + `core/security/intent_guard.py` |
 | B005 | P0 | LLM 提示词缓存省计费 | 相同系统提示词每次全量计费 | `middleware/` / LLM 侧缓存 |
@@ -134,13 +133,6 @@
 - 成本：中（引入 embedding 依赖/向量存储 + 评测调参）。
 - 收益：召回精度提升 → 减少 LLM 错表/错列与重试。
 - 关联：CAP-DB-003 / CAP-AGENT-002。
-
-**TASK-BACKLOG-002 · 同步 agent 补消息裁剪中间件（P1）**
-- 动机：同步版 `create_agent` 缺跨轮 ToolMessage 裁剪，长对话可能 token 超限（与异步版不一致）。
-- 落点：`agent/`（复用异步版 `condense_tool_results` 中间件）。
-- 成本：低（复用既有中间件）。
-- 收益：两版能力对齐，防同步版长对话超预算。
-- 关联：CAP-AGENT-003 / CAP-AGENT-001。
 
 **TASK-BACKLOG-003 · 评测语料扩集（P2）**
 - 动机：`eval/cases/` 分类用例仍较少，召回/关联/安全边界覆盖不足。
@@ -201,6 +193,7 @@
 ### 已落地（backlog 移出项）
 
 - `export_result` 接入统一 SQL 守卫（原 TASK-BACKLOG-004，[done]）：`tools/analysis_tools.py` 改用 `guard_query_sql`，测试 `test_export_result_rejects_system_table_without_db`；change 见 `openspec/archived/export-result-guard/`。backlog 恒为 `[todo]`，done 项仅在正文 TASK 表记录。
+- 同步 agent 补消息裁剪中间件（原 TASK-BACKLOG-002，[done]）：同步版 `create_agent`（`agent/analyst_agent.py`）已与异步版一致追加 `condense_tool_results_middleware` 与 `SummarizationMiddleware`，本 backlog 项实际已实现，归档移出。
 
 ---
 

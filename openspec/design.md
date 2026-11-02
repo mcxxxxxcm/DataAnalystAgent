@@ -95,9 +95,9 @@
 > 候选任务已收敛到 `openspec/tasks.md` 的「候选 / backlog」小节（TASK-BACKLOG-*），此处只保留要点与落点。
 
 - `get_relevant_schemas` 改 Embedding 语义检索（TASK-BACKLOG-001，落点 `core/database/schema_linking.py`）
-- 同步版 agent 补消息裁剪中间件（TASK-BACKLOG-002，落点 `agent/`）
 - 评测语料扩展召回 / 关联 / 安全边界 case（TASK-BACKLOG-003，落点 `eval/cases/`）
-- `export_result` 接入统一 SQL 守卫（TASK-BACKLOG-004，对应 change：`openspec/changes/export-result-guard/`）
+- 同步 agent 消息裁剪中间件：**已落地**（同步版 `create_agent` 已与异步版一致，见 `tasks.md` 「已落地」）
+- `export_result` 接入统一 SQL 守卫：**已落地**（[done]，见 `tasks.md` 「已落地」；change 归档于 `openspec/archived/export-result-guard/`）
 
 ---
 
