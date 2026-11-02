@@ -117,7 +117,6 @@
 |----|--------|----------|----------|------|
 | B001 | P1 | Embedding schema 语义检索 | `get_relevant_schemas` 硬编码关键词映射，表多召回不稳 | `core/database/schema_linking.py` |
 | B003 | P2 | 评测语料扩集（召回/关联/边界） | 用例较少、回归覆盖不足 | `eval/cases/*` |
-| B004 | P1 | 意图路由器接线 `/query` 前置拒答/澄清 | `intent_guard` 已实现未用，运行时仍裸走 LLM | `api/routes.py` + `core/security/intent_guard.py` |
 | B005 | P0 | LLM 提示词缓存省计费 | 相同系统提示词每次全量计费 | `middleware/` / LLM 侧缓存 |
 | B006 | P2 | 多 worker + Redis 共享缓存 | 单 worker 内存缓存跨进程 miss（result_store/chart） | `utils/` / `config/settings.py` |
 | B007 | P1 | 可观测: OpenTelemetry metrics/追踪 | 缺统一指标与链路追踪，压测定界难 | 新增 `observability/` + `GET /metrics` |
@@ -140,13 +139,6 @@
 - 成本：低-中（造语料 + 定金标准则）。
 - 收益：回归更稳，防退化。
 - 关联：CAP-EVAL-001/002/003。
-
-**TASK-BACKLOG-004 · 意图路由器接线 `/query` 前置拒答/澄清（P1）**
-- 动机：`intent_guard` 已实现且确定性可测，但 `ENABLE_INTENT_ROUTER` 默认关、仅评测直调；运行时仍全量进 LLM，恶意/闲聊/歧义无前置拦截。
-- 落点：`api/routes.py`（`/query` 入口按开关走 intent_guard，命中 malicious 拒答、ambiguous/smalltalk 澄清复用 LLM）。
-- 成本：中（改路由入口，需评估对既有 `/query` 行为/测试影响；默认仍需配置开关）。
-- 收益：恶意/离题请求前置拦截，省 LLM 成本、减少误答与风险面。
-- 关联：CAP-SEC-009 / CAP-AGENT-002。
 
 **TASK-BACKLOG-005 · LLM 提示词缓存省计费（P0）**
 - 动机：系统提示词（长、多段）每请求/每轮全量计费，可缓存命中省钱。
@@ -194,6 +186,7 @@
 
 - `export_result` 接入统一 SQL 守卫（原 TASK-BACKLOG-004，[done]）：`tools/analysis_tools.py` 改用 `guard_query_sql`，测试 `test_export_result_rejects_system_table_without_db`；change 见 `openspec/archived/export-result-guard/`。backlog 恒为 `[todo]`，done 项仅在正文 TASK 表记录。
 - 同步 agent 补消息裁剪中间件（原 TASK-BACKLOG-002，[done]）：同步版 `create_agent`（`agent/analyst_agent.py`）已与异步版一致追加 `condense_tool_results_middleware` 与 `SummarizationMiddleware`，本 backlog 项实际已实现，归档移出。
+- 意图路由器接线 `/query`（原 TASK-BACKLOG-004，[done]）：`core/security/intent_guard.py` 新增 `maybe_short_circuit` 纯函数，`api/routes.py` `/query` 前置接线；受 `ENABLE_INTENT_ROUTER`（默认关）门控、只短路 deny 不短路 clarify（保守低误杀）；测试 `tests/test_intent_router_wiring.py`（7 例）。change 见 `openspec/archived/intent-router-wiring/`。
 
 ---
 

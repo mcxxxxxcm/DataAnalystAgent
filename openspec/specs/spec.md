@@ -39,7 +39,7 @@
 | CAP-SEC-006 | 写操作默认不放行：`enable_sql_write` 为 False 时写 SQL 校验失败 | ✅ |
 | CAP-SEC-007 | 任意代码执行默认关：`create_custom_chart` 仅显式 `enable_custom_chart=True` 才进工具集 | ✅ `tools/__init__.py` |
 | CAP-SEC-008 | 写操作受边界保护：`query_database` 分派 INSERT/UPDATE/DELETE → 返回受影响行数、写后失效 schema 缓存、不入 result_store；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | ✅ `tools/sql_tools.py` |
-| CAP-SEC-009 | 确定性意图路由器 `intent_guard`：NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，带 deny/clarify 语义；`ENABLE_INTENT_ROUTER` 默认关、当前仅评测直调未接线 `/query` | ✅ `core/security/intent_guard.py` |
+| CAP-SEC-009 | 确定性意图路由器 `intent_guard`：NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，带 deny/clarify 语义；`maybe_short_circuit` 已接线 `/query`（受 `ENABLE_INTENT_ROUTER` 门控，默认关、只短路 deny 不短路 clarify） | ✅ `core/security/intent_guard.py` / `api/routes.py` |
 
 ## 4. Tools（tools/）
 
@@ -114,7 +114,7 @@
 |--------|------|-------------------|
 | Configuration | implemented | — |
 | core/database | implemented | `get_relevant_schemas` 仍基于硬编码关键词映射，候选改 Embedding 语义检索（见 tasks.md TASK-BACKLOG-001） |
-| core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器 `intent_guard` 已实现但未接线 `/query`（CAP-SEC-009，接线列为后续 TASK-BACKLOG-004） |
+| core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器 `intent_guard` 已接线 `/query`（CAP-SEC-009，受 `ENABLE_INTENT_ROUTER` 门控，默认关） |
 | Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008） |
 | Agent | implemented | 同步/异步两版能力对齐：载荷裁剪（condense_tool_results）+ 长上下文摘要 + 瞬时重试均具备 |
 | Middleware | implemented | — |

@@ -166,3 +166,36 @@ def classify_intent(
         f"无法确定要查询哪张表/哪个指标，需澄清：{text[:40]}",
         clarify=True,
     )
+
+
+async def maybe_short_circuit(
+    text: str,
+    table_index=None,
+    allow_smalltalk: bool = True,
+) -> Optional[str]:
+    """
+    /query 入口的确定性短路门（接线用）。
+
+    仅当 `ENABLE_INTENT_ROUTER=True` 且意图判定为「明确 deny」（MALICIOUS / SMALLTALK /
+    OUT_OF_SCOPE）时，返回给用户的短路文案；其余（含 AMBIGUOUS 歧义）一律返回 None 放行进
+    LLM。对齐设计约束「保守、低误杀」：宁可让歧义走 LLM，也不对合法查询误拒/误澄清。
+
+    table_index 可注入（评测/测试用）；缺省取全局 schema_manager 的惰性索引，构建失败或无表
+    时回退空索引——纯正则类 deny（注入/中文破坏/越权/寒暄/离题）不依赖实体命中仍可短路。
+    """
+    from config.settings import get_settings
+
+    if not get_settings().enable_intent_router:
+        return None
+    try:
+        idx = table_index
+        if idx is None:
+            from core.database import schema_manager
+            idx = await schema_manager._get_index()
+    except Exception:
+        from core.database.schema_linking import TableIndex
+        idx = TableIndex()
+    verdict = classify_intent(text, idx, allow_smalltalk=allow_smalltalk)
+    if verdict.deny:
+        return verdict.reply or verdict.reason
+    return None

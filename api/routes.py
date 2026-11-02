@@ -16,6 +16,7 @@ import json
 
 from middleware import local_logger
 from core.database import db_pool
+from core.security.intent_guard import maybe_short_circuit
 from tools.result_schemas import parse_tool_result, QueryResult
 from .schemas import (
     QueryRequest, QueryResponse,
@@ -348,6 +349,16 @@ async def query(request: QueryRequest):
 
     start_time = time.time()
     thread_id = request.thread_id or str(uuid.uuid4())
+
+    # 确定性意图前置门：ENABLE_INTENT_ROUTER=True 时，明确恶意/寒暄/离题请求短路，不进 LLM
+    reject_reply = await maybe_short_circuit(request.query)
+    if reject_reply:
+        return QueryResponse(
+            success=False,
+            thread_id=thread_id,
+            message=reject_reply,
+            execution_time_ms=(time.time() - start_time) * 1000,
+        )
 
     try:
         agent = await get_async_agent()

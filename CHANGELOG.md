@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 意图路由器接线 /query（前置拒答，省 LLM 成本）
+
+- **`intent_guard` 接线 `/query`**（TASK-BACKLOG-004 落地）：`core/security/intent_guard.py` 新增纯函数 `maybe_short_circuit(text) -> Optional[str]`，仅当 `ENABLE_INTENT_ROUTER=True` 且意图判定为明确 deny（恶意/寒暄/离题）时返回短路文案；`api/routes.py` `/query` 在进 Agent/LLM 前调用，命中即返回 `success=False` + 文案。默认关 → 零行为变化；只拒 `deny`、不拒歧义（保守低误杀）。
+- **新增测试**：`tests/test_intent_router_wiring.py`（7 例，覆盖开关开/关 + 恶意/寒暄/离题/合法查询/歧义/空索引兜底，不连 DB/LLM）。`pytest tests/ -q` 128 项全绿；`py -m eval.run_eval` 25/25 不回归。
+- **文档回填与防漂移**：`spec.md` CAP-SEC-009 / 状态表、`tasks.md` B004 → 已落地、`terminology.md` TERM-014、`README.md` 配置表与安全设计；同步清理 `README` 架构图里已删的 `viz_tools.py`、`design.md` §5 指向已归档 change 的 stale 引用、`tasks.md`/`spec.md` 中实际已实现的 B002。change 见 `openspec/archived/intent-router-wiring/`。
+
 ### SDD 开发规范完善（一致性 + 关键流程 + 优化路线）
 
 - **修规范文档 stale 到代码基线**：`openspec/specs/spec.md` / `tasks.md` / `terminology.md` / `proposal.md` / `design.md` 中已删除的 `eval/golden_queries.json` 迁移为 `eval/cases/`（schema_linking / security_deny / routing_guard）；测试数由写死 76 改为当前 `tests/` 121 项（注明以运行时为准）。

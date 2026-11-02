@@ -165,7 +165,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `SQL_MAX_ROWS` | `10000` | 查询最大返回行数（自动注入 LIMIT） |
 | `SQL_TIMEOUT` | `30` | SQL 执行超时（秒） |
 | `ENABLE_SQL_WRITE` | `false` | 是否允许 INSERT/UPDATE/DELETE |
-| `ENABLE_INTENT_ROUTER` | `false` | 是否在 `/query` 入口接入确定性意图路由器（前置拒答/澄清）。默认关：当前路由器仅被评测直接调用，不改运行时行为（接线列为后续） |
+| `ENABLE_INTENT_ROUTER` | `false` | 是否在 `/query` 入口接入确定性意图路由器做前置拒答（`maybe_short_circuit`，只拒 `deny` 不拒歧义）。默认关零行为变化；开启可拦截明确恶意/寒暄/离题请求、省 LLM 成本 |
 
 ### Agent / API
 
@@ -235,6 +235,7 @@ curl -X POST http://127.0.0.1:8085/api/approve \
 6. **风险评估**（`risk_assessor.py`）：结合复杂度、多表、写操作、无 WHERE、敏感表等维度评级，决定是否触发人工审核。
 7. **人工审核 (HITL)**：写操作 / 高风险查询执行前中断，业务侧人工放行。
 8. **日志脱敏**：工具调用中的密码、密钥等自动替换为 `***REDACTED***`。
+9. **NL 层前置拒答**（`intent_guard`，`ENABLE_INTENT_ROUTER=true` 开启）：`/query` 先用确定性意图分类器短路明确恶意 / 寒暄 / 离题请求，挡在进 LLM 之前省成本、缩窄风险面；只拒 `deny`、不拒歧义（保守低误杀）。默认关闭，不影响既有行为。
 
 ---
 
