@@ -34,6 +34,7 @@ class ToolCallRecord:
     success: bool = True
     execution_time_ms: float = 0.0
     error: Optional[str] = None
+    model_view: Optional[str] = None
 
     def to_json(self) -> str:
         """转换为JSON"""
@@ -182,10 +183,14 @@ class LocalLogger:
             output: Optional[str] = None,
             success: bool = True,
             execution_time_ms: float = 0.0,
-            error: Optional[str] = None
+            error: Optional[str] = None,
+            model_view: Optional[str] = None
     ) -> str:
         """
         记录工具调用
+
+        参数:
+            model_view: 与送入 LLM 相同阈值裁剪后的模型视图内容(供会话重建/审计)
 
         返回:
             记录ID
@@ -202,7 +207,8 @@ class LocalLogger:
             output=self._truncate_output(output),
             success=success,
             execution_time_ms=execution_time_ms,
-            error=error
+            error=error,
+            model_view=model_view
         )
 
         # 写入日志文件（JSONL格式，每行一个JSON），经 RotatingFileHandler 轮转，

@@ -106,6 +106,10 @@ class Settings(BaseSettings):
         default=True,
         description="是否记录审批/拒绝等人工审核决策到 audit.jsonl"
     )
+    recon_model_view_enabled: bool = Field(
+        default=True,
+        description="是否在工具调用日志记录 model_view(与送入LLM同阈值裁剪的内容)，供会话重建/审计"
+    )
 
     # === 记忆 / 长期记忆 Store ===
     enable_memory_tools: bool = Field(

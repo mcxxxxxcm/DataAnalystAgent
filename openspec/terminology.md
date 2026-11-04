@@ -20,6 +20,7 @@
 | TERM-013 | 评测语料集 | 回归评测的分类标准用例集 | `eval/cases/`（schema_linking / security_deny / routing_guard 三文件）；golden 旧路径已弃 |
 | TERM-014 | 意图路由器 intent_guard | 确定性 NL 意图分类（query/chart/info/malicious/smalltalk/ambiguous/out_of_scope），带 deny/clarify 语义；`maybe_short_circuit` 已接线 `/query`，仅短路 deny | `core/security/intent_guard.py`；`ENABLE_INTENT_ROUTER` 默认关 |
 | TERM-015 | 写操作边界 | query_database 分派 INSERT/UPDATE/DELETE → 返回受影响行数；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | `tools/sql_tools.py` / `core/security/risk_assessor.py` |
+| TERM-016 | 模型视图可重建（recon） | "Model-visible ⟺ logged"：发给模型的完整消息序列可由会话日志确定性重建；工具日志记录真实 thread_id + `model_view`（与送入 LLM 同 condense 阈值） | `core/recon.py` / `middleware/logging_wrapper.py`；`recon_model_view_enabled` 默认开 |
 
 ---
 

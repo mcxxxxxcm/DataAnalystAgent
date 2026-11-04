@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 模型视图可重建不变量（M1，可观测：日志 ⟹ 模型视图可重建）
+
+- **确定性重建函数**（`core/recon.py`，纯函数、无 DB/LLM）：`reconstruct_model_messages(events)` 把「会话事件序列」编排成 LangChain 消息列表（system / user / assistant_tool_calls / tool_result / resume / summary），tool_result 经 `tool_call_id` 与 AIMessage 配对；未知事件类型 fail loud。`session_events_from_tool_records` 把工具日志记录转成可重建事件，保序（append-only）。
+- **忠实捕获**（`middleware/logging_wrapper.py`）：工具调用日志从硬编码 `thread_id='current'` 修正为真实会话 id（解析自 `request.runtime.config.configurable.thread_id`，缺失回退）；新增 `model_view` 字段，用与送入 LLM 相同的 condense 阈值（`config.settings.tool_result_max_*`）对结果裁剪后落盘，使「日志记录的内容」==「模型实际看到的内容」（Model-visible ⟺ logged）。受 `recon_model_view_enabled`（默认 True）门控。
+- **新增测试**：`tests/test_recon.py`（10 例：轮序、多步配对、忠实性、HITL resume、summary、未知事件 fail loud、records→events 保序等，全 DB/LLM-free）。`pytest tests/ -q` 138 项全绿；`py -m eval.run_eval` 25/25 不回归。
+- **文档回填**：`spec.md` 新增 `CAP-RECON-001/002`、状态表补 recon 行；`tasks.md` 新增 `TASK-RECON-001`；`README.md` 日志特性与配置表补 `recon_model_view_enabled`。change 见 `openspec/archived/recon-model-view-invariant/`。
+
 ### 意图路由器接线 /query（前置拒答，省 LLM 成本）
 
 - **`intent_guard` 接线 `/query`**（TASK-BACKLOG-004 落地）：`core/security/intent_guard.py` 新增纯函数 `maybe_short_circuit(text) -> Optional[str]`，仅当 `ENABLE_INTENT_ROUTER=True` 且意图判定为明确 deny（恶意/寒暄/离题）时返回短路文案；`api/routes.py` `/query` 在进 Agent/LLM 前调用，命中即返回 `success=False` + 文案。默认关 → 零行为变化；只拒 `deny`、不拒歧义（保守低误杀）。

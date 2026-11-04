@@ -103,8 +103,15 @@
 |----|------|------|
 | CAP-EVAL-001 | Text2SQL 回归评测：`eval/run_eval.py` 多场景聚合 harness，跑分类语料 | ✅ |
 | CAP-EVAL-002 | 分类语料：`eval/cases/`（schema_linking / security_deny / routing_guard 三文件），另含 `mine_badcases.py` 扫日志 dump 坏 case | ✅ `schema_linking.json` / `security_deny.json` / `routing_guard.json` |
-| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 | ✅ `tests/`（121 项通过） |
+| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 / 模型视图重建 | ✅ `tests/`（138 项通过） |
 | CAP-EVAL-004 | `pytest tests/ -q` 为改动硬门槛 | ✅ |
+
+## 10. Core：recon（模型视图可重建不变量，M1）
+
+| ID | 需求 | 现状 |
+|----|------|------|
+| CAP-RECON-001 | 确定性重建：`reconstruct_model_messages(events)` 把会话事件编排成 LangChain 消息序列；`session_events_from_tool_records` 把工具日志转事件；纯函数、无 DB/LLM | ✅ `core/recon.py` |
+| CAP-RECON-002 | 忠实捕获：工具日志记录真实 `thread_id`（来自 `request.runtime.config`，回退 `'current'`）+ `model_view`（与送入 LLM 同 condense 阈值）；`recon_model_view_enabled` 门控（默认开） | ✅ `middleware/logging_wrapper.py` / `config/settings.py` |
 
 ---
 
@@ -121,3 +128,4 @@
 | API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）与 checkpoint 维护端点（CAP-API-007） |
 | Utils | implemented | 新增 `bench.loadtest` 压测工具（CAP-UTIL-005） |
 | Eval & Tests | implemented | 语料分类化（`eval/cases/`）；含写操作/意图路由/并发回归测试；Golden 仍可扩展更多召回/关联/边界 case（TASK-BACKLOG-003） |
+| recon（可观测） | implemented | 模型视图可重建不变量（CAP-RECON-001/002，change：recon-model-view-invariant） |

@@ -100,8 +100,14 @@
 |----|------|------|--------------------|----------|
 | TASK-EVAL-001 | [done] | Text2SQL 回归评测 | CAP-EVAL-001 `eval/run_eval.py` | 多场景聚合 harness，跑分类语料 |
 | TASK-EVAL-002 | [done] | 分类语料基线 | CAP-EVAL-002 `eval/cases/` | schema_linking/security_deny/routing_guard 三文件；`mine_badcases.py` 扫日志 dump 坏 case |
-| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发（121 项） |
+| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建（138 项） |
 | TASK-EVAL-004 | [done] | 测试硬门槛 | CAP-EVAL-004 | `pytest tests/ -q` 全绿为改动门槛 |
+
+## 9. 可观测（recon）（TASK-RECON-*）
+
+| ID | 状态 | 任务 | 范围（CAP / 文件） | 验收要点 |
+|----|------|------|--------------------|----------|
+| TASK-RECON-001 | [done] | 模型视图可重建不变量（M1） | CAP-RECON-001/002 `core/recon.py` + `middleware/logging_wrapper.py` + `config/settings.py` | 重建纯函数可用；工具日志记录真实 thread_id + model_view（同 condense 阈值）；断言回归见 `tests/test_recon.py`（10 例）。change：`openspec/archived/recon-model-view-invariant/` |
 
 ---
 

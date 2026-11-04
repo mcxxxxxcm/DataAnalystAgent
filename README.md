@@ -30,7 +30,7 @@
 | 👤 人工审核 (HITL) | 写操作 / 高风险查询在执行前拦截，由人工 approve/reject |
 | 🧵 多轮对话短期记忆 | 基于 `AsyncPostgresSaver`，会话（thread_id）上下文持久化到 PostgreSQL |
 | 📊 自动图表 | `create_chart` 生成柱状图/折线图/饼图/散点图，图片 base64 返回前端 |
-| 📝 本地结构化日志 | 全部工具调用落盘为 JSONL，敏感字段自动脱敏，支持日志轮转 |
+| 📝 本地结构化日志 | 全部工具调用落盘为 JSONL，敏感字段自动脱敏，支持日志轮转；记录真实会话 id 与 `model_view`（模型实际看到的裁剪内容，供会话重建/审计），达到「日志 ⟹ 模型视图可重建」 |
 | 🖥️ 内置 Web 界面 | `static/index.html` 提供对话式前端 |
 
 ---
@@ -166,6 +166,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `SQL_TIMEOUT` | `30` | SQL 执行超时（秒） |
 | `ENABLE_SQL_WRITE` | `false` | 是否允许 INSERT/UPDATE/DELETE |
 | `ENABLE_INTENT_ROUTER` | `false` | 是否在 `/query` 入口接入确定性意图路由器做前置拒答（`maybe_short_circuit`，只拒 `deny` 不拒歧义）。默认关零行为变化；开启可拦截明确恶意/寒暄/离题请求、省 LLM 成本 |
+| `AUDIT_LOG_ENABLED` | `true` | 是否记录审批/拒绝等 HITL 决策到 `audit.jsonl` |
+| `RECON_MODEL_VIEW_ENABLED` | `true` | 是否在工具调用日志记录 `model_view`（与送入 LLM 同阈值裁剪的内容），供会话重建/审计 |
 
 ### Agent / API
 
