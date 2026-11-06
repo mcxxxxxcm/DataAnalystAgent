@@ -67,6 +67,8 @@ API 层          api/                         FastAPI 应用与路由
    └─ schemas.py        Pydantic 请求/响应模型
 ─────────────────────────────────────────────────────────────────────────
 工具函数层      utils/                       chart_sandbox(代码执行沙箱) / checkpoint_cleanup
+                                           │ bounded_cache(单一写者 BoundedTTLCache) / result_store(result_id 缓存)
+                                           └ effect_queue(持久化效果队列+指数退避) / sql_tools 通过 run_sql_durable 接通
 前端            static/index.html           对话式 Web UI
 入口            main.py / run_server.py / start_windows.py
 ```
@@ -150,7 +152,6 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `DB_USER` / `DB_PASSWORD` | `postgres` / - | 账号密码 |
 | `DB_POOL_SIZE` | `20` | 连接池最大大小 |
 | `DB_POOL_MIN_SIZE` | `5` | 连接池最小大小（预热） |
-| `DB_MAX_OVERFLOW` | `0` | 已废弃：asyncpg 无 overflow 概念，仅保留字段避免 .env 变量被忽略，请保持 0 |
 
 ### 工具
 
@@ -166,6 +167,10 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `SQL_TIMEOUT` | `30` | SQL 执行超时（秒） |
 | `ENABLE_SQL_WRITE` | `false` | 是否允许 INSERT/UPDATE/DELETE |
 | `ENABLE_INTENT_ROUTER` | `false` | 是否在 `/query` 入口接入确定性意图路由器做前置拒答（`maybe_short_circuit`，只拒 `deny` 不拒歧义）。默认关零行为变化；开启可拦截明确恶意/寒暄/离题请求、省 LLM 成本 |
+| `ENABLE_ADMISSION_GATE` | `false` | 是否在 `/query` 入口接入请求准入门 `admission_gate`（来源×意图合成准入，`maybe_gate` 只短路 `deny`/`reply`）。默认关零行为变化 |
+| `ADMISSION_MODE` | `off` | 准入门来源模式：`off`=不校验来源（仅意图判定）/ `allowlist`=校验 `ADMISSION_ALLOWED_KEYS` 来源 key |
+| `ADMISSION_ALLOWED_KEYS` | 空 | allowlist 模式下允许的来源 key 集合（逗号分隔），经 `X-Admission-Key` 请求头校验 |
+| `INTENT_CANONICAL_REPLIES` | 空 | 注意力经济的固定直答文案（`意图:文案` 逗号分隔），供寒暄/结构询问低信号安全意图不烧 LLM |
 | `AUDIT_LOG_ENABLED` | `true` | 是否记录审批/拒绝等 HITL 决策到 `audit.jsonl` |
 | `RECON_MODEL_VIEW_ENABLED` | `true` | 是否在工具调用日志记录 `model_view`（与送入 LLM 同阈值裁剪的内容），供会话重建/审计 |
 
@@ -174,6 +179,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `MAX_RETRY_ATTEMPTS` | `3` | SQL 失败重试次数 |
+| `EFFECT_QUEUE_MAX_RETRIES` | `2` | SQL 瞬时错误指数退避重试上限；`0` 关闭退避层（原样执行一次） |
+| `EFFECT_QUEUE_BASE_DELAY` | `1.0` | 指数退避基础延迟（秒），重试间隔按 `base_delay * 2^attempt` 递增 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `8080` | 服务监听 |
 | `API_WORKERS` | `1` | uvicorn worker 数；异步应用建议保持单 worker，多 worker 需经 `api/main.py` 字符串入口 |
 | `API_BACKLOG` | `2048` | uvicorn 等待队列 backlog 上限 |
@@ -183,8 +190,6 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `API_AUTH_TOKEN` | 空 | 可选 Bearer Token 鉴权；留空不鉴权，生产建议设置 |
 | `CORS_ORIGINS` | `*` | 允许的跨域来源，逗号分隔；配置具体来源时自动附带凭据 |
 | `ENABLE_CUSTOM_CHART` | `false` | 是否启用 `create_custom_chart`（任意代码执行，风险高，默认关闭） |
-| `REDIS_URL` | - | 可选，预留 Schema/结果缓存 |
-| `CACHE_TTL` | `3600` | 缓存过期时间 |
 
 ---
 
@@ -238,6 +243,7 @@ curl -X POST http://127.0.0.1:8085/api/approve \
 7. **人工审核 (HITL)**：写操作 / 高风险查询执行前中断，业务侧人工放行。
 8. **日志脱敏**：工具调用中的密码、密钥等自动替换为 `***REDACTED***`。
 9. **NL 层前置拒答**（`intent_guard`，`ENABLE_INTENT_ROUTER=true` 开启）：`/query` 先用确定性意图分类器短路明确恶意 / 寒暄 / 离题请求，挡在进 LLM 之前省成本、缩窄风险面；只拒 `deny`、不拒歧义（保守低误杀）。默认关闭，不影响既有行为。
+10. **请求准入门 + 注意力经济**（`admission_gate`，`ENABLE_ADMISSION_GATE=true` 开启）：`/query` 按「来源 × 意图」合成确定性准入判定（admit/deny/clarify/reply）；只短路 `deny`/`reply`、不短路 `clarify`（低漏放）；`ADMISSION_MODE=allowlist` 时经 `X-Admission-Key` 校验来源；寒暄/结构询问低信号安全意图用固定文案直答，不烧 LLM。文案经 `INTENT_CANONICAL_REPLIES` 配置，非硬编码。默认关闭，不影响既有行为。
 
 ---
 
@@ -302,7 +308,7 @@ py -m bench.loadtest --endpoint query --query '本月销售额是多少' --dry-r
 | 4 | `get_relevant_schemas` 靠硬编码关键词 | ⏳ 待做：建议改为基于 Embedding 语义检索 |
 | 5 | 系统提示词写死示例表，与真实 Schema 脱节 | ✅ 已移除硬编码示例表，改为动态依赖 `get_relevant_schemas` |
 | 6 | `chart_tools` 与 `viz_tools` 重复实现 | ✅ 已删除 `viz_tools.py`，收敛为单一实现 |
-| 7 | 缺少测试 | ✅ 已具备分类回归评测（`eval/cases/`）+ `tests/` 121 项单测，`pytest tests/ -q` 为改动硬门槛 |
+| 7 | 缺少测试 | ✅ 已具备分类回归评测（`eval/cases/`）+ `tests/` 174 项单测，`pytest tests/ -q` 为改动硬门槛 |
 | 8 | 后续优化方向 | 🗺️ 带优先级（P0-P2）路线见 `openspec/tasks.md` 候选/backlog（Embedding 召回、意图路由器接线、LLM 提示词缓存、可观测、多 worker+Redis 等 10 项） |
 | 9 | SDD 规范维护 | 📐 SDD 治理文档与代码基线同步（`agreement.md` §2.5 DoD / §6 防漂移）；归档 change 时回填 CAP/TASK/TERM |
 

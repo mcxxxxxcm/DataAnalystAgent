@@ -9,11 +9,11 @@
 from langchain_core.tools import tool
 from typing import List, Dict, Any, Optional
 import asyncio
-import time
 
 from utils.result_store import get_result
 from utils.chart_spec import build_echarts_option
 from utils.chart_sandbox import execute_chart_code
+from utils.bounded_cache import BoundedTTLCache
 from tools.result_schemas import ChartResult, dump_result
 
 from concurrent.futures import ThreadPoolExecutor
@@ -25,38 +25,21 @@ _executor = ThreadPoolExecutor(
 )
 
 
-# 全局缓存，用于存储生成的 ECharts option（带 TTL 与上限，防止无界增长）
-# 并发说明：单事件循环下这些是同步 dict 操作，协程只在 await 点切换、中途不可被打断，无真争用。
-# 因此故意不加锁（asyncio.Lock 只增开销）。若将来把序列化挪进线程池，需补 threading.Lock；
-# 若需多 worker/多进程跨进程共享本缓存，须改 Redis（config.redis_url，默认 None）。
-_spec_cache: Dict[str, Dict[str, Any]] = {}
-_spec_expiry: Dict[str, float] = {}
-_SPEC_TTL_SECONDS = 600  # 10 分钟过期
-_SPEC_MAX_ENTRIES = 50
+# 全局缓存，用于存储生成的 ECharts option（带 TTL 与上限，防止无界增长）。
+# 单一写者：状态由 `_spec_cache`（BoundedTTLCache）独占写路径；读取走只读 `get`（非摧毁式），
+# 避免 /chart/option 重试或多次读取时丢 spec（对齐「Read queries never write」）。
+# 并发说明：单事件循环下同步 dict 操作无真争用，故意不加锁；多进程共享需 Redis（见 backlog B006）。
+_spec_cache: BoundedTTLCache[str, Dict[str, Any]] = BoundedTTLCache()
 
 
 def _store_spec(chart_id: str, option: Dict[str, Any]) -> None:
-    """存储图表 spec，超上限时淘汰最早的条目"""
-    now = time.time()
-    _spec_cache[chart_id] = option
-    _spec_expiry[chart_id] = now + _SPEC_TTL_SECONDS
-
-    if len(_spec_cache) > _SPEC_MAX_ENTRIES:
-        oldest_id = min(_spec_expiry, key=_spec_expiry.get)
-        _spec_cache.pop(oldest_id, None)
-        _spec_expiry.pop(oldest_id, None)
+    """存储图表 spec，交由 BoundedTTLCache 决定 TTL 与超上限淘汰（单一写者）。"""
+    _spec_cache.set(chart_id, option)
 
 
 def get_cached_spec(chart_id: str) -> Optional[Dict[str, Any]]:
-    """从缓存获取图表 option（过期自动失效并移除）"""
-    expiry = _spec_expiry.get(chart_id)
-    if expiry is None:
-        return None
-    if time.time() > expiry:
-        _spec_cache.pop(chart_id, None)
-        _spec_expiry.pop(chart_id, None)
-        return None
-    return _spec_cache.pop(chart_id, None)
+    """从缓存获取图表 option（只读；过期自动失效并移除）。读后条目仍在。"""
+    return _spec_cache.get(chart_id)
 
 
 @tool

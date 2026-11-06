@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### dsh 思想迁移四改动（准入门 · 单一写者 · 少设置 · 效果队列）
+
+迁移 deepseek 开源超级智能体（`dsh-superagent` / `deepseek-harness`）的哲学与架构到本项目：
+
+- **请求准入门 + 注意力经济**（CAP-SEC-010）：`core/security/admission.py` 新增 `AdmissionGate`，在 `/query` 入口合成「来源 × 意图」确定性准入（admit/deny/clarify/reply）。allowlist 模式校验 `X-Admission-Key`；寒暄/结构询问等低信号安全意图用固定文案直答、**不烧 LLM token**（注意力经济，文案经 `intent_canonical_replies` 配置）。`enable_admission_gate`（默认关）门控，接通不改变现状。测试 `tests/test_admission.py`（14 例）。change 归档 `openspec/archived/admission-gate-attention/`。
+- **单一写者纪律**（CAP-UTIL-006）：`utils/bounded_cache.py` 新增 `BoundedTTLCache` 有界 TTL 缓存原语，收敛 `result_store` 与图表 spec 缓存的手写重复实现；修复图表读路径摧毁式 `.pop()` → 只读 `get`（「读不写」）；`docs/state-owners.md` 记录各状态唯一写者。测试 `tests/test_bounded_cache.py` + `tests/test_single_writer.py`。change 归档 `openspec/archived/single-writer-discipline/`。
+- **少设置审计**：按 dsh「一个默认值能覆盖就删 setting」删除 `db_max_overflow` / `cache_ttl` / `redis_url` / `agent_verbose` 四个无消费方配置；缓存 TTL 归 `BoundedTTLCache` 常量单一来源。change 归档 `openspec/archived/few-settings-audit/`。
+- **持久化效果队列 + 指数退避**（CAP-UTIL-007）：`utils/effect_queue.py` 新增 `AsyncEffectQueue`（key 幂等入队、指数退避 + 抖动、可选 JSONL 持久化、pending/settled/failed 健康计数）；`run_sql_durable` 接通 SQL 瞬时错误退避层（`effect_queue_max_retries` 默认 2）。测试 `tests/test_effect_queue.py`。change 归档 `openspec/archived/durable-effect-queue/`。
+- `py -m pytest tests/ -q` **174 项全绿**；`py -m eval.run_eval` 不回归。
+
 ### 模型视图可重建不变量（M1，可观测：日志 ⟹ 模型视图可重建）
 
 - **确定性重建函数**（`core/recon.py`，纯函数、无 DB/LLM）：`reconstruct_model_messages(events)` 把「会话事件序列」编排成 LangChain 消息列表（system / user / assistant_tool_calls / tool_result / resume / summary），tool_result 经 `tool_call_id` 与 AIMessage 配对；未知事件类型 fail loud。`session_events_from_tool_records` 把工具日志记录转成可重建事件，保序（append-only）。

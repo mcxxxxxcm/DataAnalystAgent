@@ -90,6 +90,12 @@
 | POST | /api/checkpoints/cleanup | days_to_keep/dry_run → dict | CAP-API-001 / CAP-UTIL-004 |
 | POST | /api/checkpoints/cleanup-orphaned | dry_run → dict | CAP-API-001 / CAP-UTIL-004 |
 
+## 4.4 状态所有权（One-Writer-Per-State）
+
+> 每类可变状态唯一写者 + 「读不写」纪律：见 `docs/state-owners.md`（单一来源，此处只留指针）。
+
+---
+
 ## 5. 开放问题 / 候选演进
 
 > 候选任务已收敛到 `openspec/tasks.md` 的「候选 / backlog」小节（TASK-BACKLOG-*），此处只保留要点与落点。

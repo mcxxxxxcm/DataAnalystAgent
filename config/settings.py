@@ -17,6 +17,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 
+# 少设置约定（Few-Settings）：运行时一次性 / 常量类参数（如缓存 TTL、容量上限）以各模块
+# 常量/缓存原语为准，不进配置；只有真实被消费且需按部署调整的参数才在此定义（见 design 状态所有权）。
+
 
 class Settings(BaseSettings):
     """
@@ -49,10 +52,6 @@ class Settings(BaseSettings):
     db_password: str = Field(default="", description="数据库密码")
     db_pool_size: int = Field(default=20, ge=1, le=100, description="连接池最大大小")
     db_pool_min_size: int = Field(default=5, ge=1, le=100, description="连接池最小大小(预warm)")
-    db_max_overflow: int = Field(
-        default=0,
-        description="[已废弃] asyncpg 无 overflow 概念，本项目不实现，仅保留字段避免 .env 同名变量被 extra=ignore 静默吞掉。请设为 0。",
-    )
 
     # === 安全配置 ===
     sql_max_rows: int = Field(default=10000, ge=1, description="SQL查询最大返回行数，防止全表扫描")
@@ -64,10 +63,25 @@ class Settings(BaseSettings):
                      "默认关：当前路由器仅由评测(eval/run_eval.py)直接调用，不改运行时行为"
                      "（core/security/intent_guard.classify_intent 为纯函数，与开关无关）")
     )
-
-    # === Redis缓存配置 ===
-    redis_url: Optional[str] = Field(default=None, description="Redis连接URL，用于缓存Schema和查询结果")
-    cache_ttl: int = Field(default=3600, description="缓存过期时间(S)")
+    enable_admission_gate: bool = Field(
+        default=False,
+        description=("是否在 /query 入口启用请求准入门(admission gate)：来源×意图合成准入判定，"
+                     "未准入来源拒绝、低信号安全意图(寒暄/结构询问)用固定文案直答不烧 LLM。"
+                     "默认关，接通不改变现状（core/security/admission.py 为纯逻辑）。")
+    )
+    admission_mode: str = Field(
+        default="off",
+        description="准入门来源模式: off=不校验来源(仅意图判定) / allowlist=校验 admission_allowed_keys。"
+    )
+    admission_allowed_keys: Optional[str] = Field(
+        default=None,
+        description="allowlist 模式允许的来源 key（逗号分隔）。来源由请求头 X-Admission-Key 提供。"
+    )
+    intent_canonical_replies: Optional[str] = Field(
+        default=None,
+        description="低信号安全意图的固定直答文案（prompt text，非 LLM 生成），'意图=文案' 逗号分隔段，"
+                    "如 'smalltalk=你好，我是数据分析助手...'。未配置时用 intent_guard 内置兜底文案。"
+    )
 
     # === 工具配置 ===
     enable_custom_chart: bool = Field(
@@ -160,7 +174,14 @@ class Settings(BaseSettings):
         default=True,
         description="对瞬时/可恢复类 SQL 错误(超时、死锁、连接中断等)自动重试(经 ToolRetryMiddleware)"
     )
-    agent_verbose: bool = Field(default=True, description="是否显示详细日志")
+    effect_queue_max_retries: int = Field(
+        default=2, ge=0, le=10,
+        description="SQL 瞬时错误经效果队列(utils/effect_queue)的指数退避重试次数上限；0=关闭退避层"
+    )
+    effect_queue_base_delay: float = Field(
+        default=1.0, ge=0.1, le=60.0,
+        description="SQL 效果队列指数退避的基础延迟(秒)，实际退避 = base × 2^(attempt)"
+    )
 
     # === API配置 ===
     api_host: str = Field(default="0.0.0.0", description="API服务监听地址")
@@ -223,6 +244,29 @@ class Settings(BaseSettings):
         """
         window = self.llm_context_window or _infer_context_window(self.llm_model)
         return int(window * 0.8)
+
+    @property
+    def allowed_admission_keys(self) -> set:
+        """解析 admission_allowed_keys 为允许的来源 key 集合（allowlist 模式用）。"""
+        if not self.admission_allowed_keys:
+            return set()
+        return {k.strip().lower() for k in self.admission_allowed_keys.split(',') if k.strip()}
+
+    @property
+    def canonical_reply_map(self) -> Dict[str, str]:
+        """解析 intent_canonical_replies 为 {意图: 文案}（注意力经济的固定直答文案）。"""
+        mapping: Dict[str, str] = {}
+        if not self.intent_canonical_replies:
+            return mapping
+        for segment in self.intent_canonical_replies.split(','):
+            segment = segment.strip()
+            if not segment or '=' not in segment:
+                continue
+            intent, _, reply = segment.partition('=')
+            intent, reply = intent.strip().lower(), reply.strip()
+            if intent and reply:
+                mapping[intent] = reply
+        return mapping
 
     @property
     def user_synonym_map(self) -> Dict[str, List[str]]:

@@ -5,53 +5,34 @@
 图表工具按 id 取数，避免 LLM 把完整结果重新序列化进工具参数（token 优化）。
 """
 
-import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-# 有界缓存，带过期时间与容量上限，防止无界增长
-# 并发说明：单事件循环下这些是同步 dict 操作，协程只在 await 点切换、中途不可被打断，无真争用。
-# 因此故意不加锁（asyncio.Lock 只增开销）。若将来把序列化挪进线程池，需补 threading.Lock；
-# 若需多 worker/多进程跨进程共享结果，须改 Redis（config.redis_url，默认 None）。
-_store: Dict[str, Dict[str, Any]] = {}
-_expiry: Dict[str, float] = {}
-_TTL_SECONDS = 600  # 10 分钟过期
-_MAX_ENTRIES = 50
+from utils.bounded_cache import BoundedTTLCache as _BoundedTTLCache
+
+# 有界缓存，带过期时间与容量上限，防止无界增长。
+# 单一写者：状态由 `_cache`（BoundedTTLCache）独占写路径；本模块仅作薄委托，保持对外函数签名不变。
+# TTL/容量单一来源在 `_BoundedTTLCache` 默认值（10 分钟过期 / 50 条），不在此另设配置（少设置审计）。
+_cache: _BoundedTTLCache[str, Dict[str, Any]] = _BoundedTTLCache()
 
 
 def set_result(columns: List[str], rows: List[Dict[str, Any]]) -> str:
     """存储一次查询结果，返回 result_id"""
     result_id = uuid.uuid4().hex[:12]
-    now = time.time()
-    _store[result_id] = {"columns": columns, "rows": rows}
-    _expiry[result_id] = now + _TTL_SECONDS
-
-    if len(_store) > _MAX_ENTRIES:
-        oldest_id = min(_expiry, key=_expiry.get)
-        _store.pop(oldest_id, None)
-        _expiry.pop(oldest_id, None)
-
+    _cache.set(result_id, {"columns": columns, "rows": rows})
     return result_id
 
 
 def get_result(result_id: str) -> Optional[Dict[str, Any]]:
-    """按 id 取结果；过期自动失效并移除。返回 {columns, rows} 或 None"""
-    expiry = _expiry.get(result_id)
-    if expiry is None:
-        return None
-    if time.time() > expiry:
-        _store.pop(result_id, None)
-        _expiry.pop(result_id, None)
-        return None
-    return _store.get(result_id)
+    """按 id 取结果；过期自动失效并移除。返回 {columns, rows} 或 None（只读路径，非摧毁式）"""
+    return _cache.get(result_id)
 
 
 def clear() -> None:
     """清空缓存（测试用）"""
-    _store.clear()
-    _expiry.clear()
+    _cache.clear()
 
 
 def cache_size() -> int:
     """当前缓存条目数（可观测/压测用）"""
-    return len(_store)
+    return _cache.size()

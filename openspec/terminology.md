@@ -21,7 +21,11 @@
 | TERM-014 | 意图路由器 intent_guard | 确定性 NL 意图分类（query/chart/info/malicious/smalltalk/ambiguous/out_of_scope），带 deny/clarify 语义；`maybe_short_circuit` 已接线 `/query`，仅短路 deny | `core/security/intent_guard.py`；`ENABLE_INTENT_ROUTER` 默认关 |
 | TERM-015 | 写操作边界 | query_database 分派 INSERT/UPDATE/DELETE → 返回受影响行数；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | `tools/sql_tools.py` / `core/security/risk_assessor.py` |
 | TERM-016 | 模型视图可重建（recon） | "Model-visible ⟺ logged"：发给模型的完整消息序列可由会话日志确定性重建；工具日志记录真实 thread_id + `model_view`（与送入 LLM 同 condense 阈值） | `core/recon.py` / `middleware/logging_wrapper.py`；`recon_model_view_enabled` 默认开 |
+| TERM-017 | 请求准入门（admission gate） | 「来源 × 意图」合成确定性准入判定（admit/deny/clarify/reply）；迁移 dsh 的 Policy/gate/admission-table + 注意力经济 | `core/security/admission.py`；`enable_admission_gate` 默认关、`admission_mode=allowlist` 校验来源 key |
+| TERM-018 | 注意力经济 | 只在「有人必须行动或能用到结果」时才应答/计算；低信号安全意图（寒暄/结构询问）固定直答不烧 LLM | `core/security/admission.py` `maybe_gate`；文案经 `intent_canonical_replies`（prompt text，非硬编码） |
+| TERM-019 | 单一写者（one-writer-per-state） | 每类可变状态只允许一个写者，其余只读或委托；读查询不写 | `utils/bounded_cache.py` / `docs/state-owners.md` |
+| TERM-020 | 效果队列（effect queue） | 可重试副作用按 key 幂等入队、指数退避重试、可选持久化、失败健康计数 | `utils/effect_queue.py`；`effect_queue_max_retries>0` 时接通 SQL 瞬时错误退避层 |
 
 ---
 
-*版本：v0.1（从现有文档提取） | 更新：2026-10-07*
+*版本：v0.2（补准入门/注意力经济/单一写者/效果队列） | 更新：2026-11-06*

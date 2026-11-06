@@ -20,6 +20,7 @@ from tools.result_schemas import QueryResult, dump_result
 from tools.boundaries import guard_query_sql, is_allowed_table
 from core.security.sql_error import build_self_correction_message, is_transient_error
 from utils.result_store import set_result
+from utils.effect_queue import run_sql_durable, sql_key
 
 # SELECT 类查询返回上限，建议 LLM 用 LIMIT 缩小范围，超出部分截断
 _SELECT_HARD_CAP = get_settings().sql_max_rows
@@ -62,11 +63,17 @@ async def query_database(query: str) -> str:
             return dump_result(result)
 
         write_type = _is_write_dml(sql)
+        _cfg_retries = get_settings().effect_queue_max_retries
+        _cfg_delay = get_settings().effect_queue_base_delay
+        _sql_key = sql_key(sql)
 
         if write_type:
             # 写操作：执行 + 写后失效 schema 缓存（刷新 stale 的 row_count/sample_data）；
             # 结果不入 result_store（写结果不适合作图表数据源，避免越界）。
-            tag = await db_pool.execute(sql, timeout=timeout)
+            tag = await run_sql_durable(
+                db_pool.execute, key=_sql_key, max_retries=_cfg_retries,
+                base_delay=_cfg_delay, args=(sql,), kwargs={"timeout": timeout},
+            )
             affected = _parse_affected_rows(tag)
             schema_manager.clear_cache()
             result = QueryResult(
@@ -77,7 +84,10 @@ async def query_database(query: str) -> str:
             )
             return dump_result(result)
 
-        rows = await db_pool.fetch(sql, timeout=timeout)
+        rows = await run_sql_durable(
+            db_pool.fetch, key=_sql_key, max_retries=_cfg_retries,
+            base_delay=_cfg_delay, args=(sql,), kwargs={"timeout": timeout},
+        )
         data = [dict(row) for row in rows]
         columns = list(rows[0].keys()) if rows else []
         # 结果入引用缓存，供 create_chart 按 result_id 取数，避免 LLM 重传完整数据

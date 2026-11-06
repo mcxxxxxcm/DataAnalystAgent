@@ -20,9 +20,10 @@ def test_concurrency_defaults():
     assert s.api_graceful_shutdown == 30
 
 
-def test_db_max_overflow_deprecated_but_kept():
+def test_dead_settings_removed():
+    """少设置审计：无真实消费方的惰性配置已移除，防止回潮。"""
     from config.settings import Settings
 
     s = Settings(_env_file=None)
-    # 字段保留（避免 .env 同名变量被 extra=ignore 静默吞掉），但默认 0 表示废弃
-    assert s.db_max_overflow == 0
+    for field in ("db_max_overflow", "cache_ttl", "redis_url", "agent_verbose"):
+        assert not hasattr(s, field), f"已删除的死配置 {field} 不应存在于 Settings 模型"

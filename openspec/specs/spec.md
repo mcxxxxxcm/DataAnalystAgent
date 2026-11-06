@@ -40,6 +40,7 @@
 | CAP-SEC-007 | 任意代码执行默认关：`create_custom_chart` 仅显式 `enable_custom_chart=True` 才进工具集 | ✅ `tools/__init__.py` |
 | CAP-SEC-008 | 写操作受边界保护：`query_database` 分派 INSERT/UPDATE/DELETE → 返回受影响行数、写后失效 schema 缓存、不入 result_store；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | ✅ `tools/sql_tools.py` |
 | CAP-SEC-009 | 确定性意图路由器 `intent_guard`：NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，带 deny/clarify 语义；`maybe_short_circuit` 已接线 `/query`（受 `ENABLE_INTENT_ROUTER` 门控，默认关、只短路 deny 不短路 clarify） | ✅ `core/security/intent_guard.py` / `api/routes.py` |
+| CAP-SEC-010 | 确定性请求准入门 `admission_gate`：来源×意图合成准入判定（admit/deny/clarify/reply），迁移 dsh 的 Policy/gate/admission-table + 注意力经济；`maybe_gate` 接线 `/query`（`enable_admission_gate` 门控，默认关、只短路 deny/reply 不短路 clarify）；allowlist 模式校验 `X-Admission-Key`；寒暄/结构询问固定直答不烧 LLM | ✅ `core/security/admission.py` / `api/routes.py` / `config/settings.py` |
 
 ## 4. Tools（tools/）
 
@@ -91,7 +92,9 @@
 
 | ID | 需求 | 现状 |
 |----|------|------|
-| CAP-UTIL-001 | 查询结果引用缓存有界 TTL（上限 50 条 / 10 分钟过期） | ✅ `utils/result_store.py` |
+| CAP-UTIL-001 | 查询结果引用缓存有界 TTL（上限 50 条 / 10 分钟过期） | ✅ `utils/result_store.py`（代理到 `BoundedTTLCache`） |
+| CAP-UTIL-006 | 单一写者有界 TTL 缓存原语 `BoundedTTLCache`：写/淘汰集中于一个类，读（get/peek）非摧毁式、pop 显式一次性消费；状态所有权约定见 `docs/state-owners.md`；消除 result_store 与图表 spec 缓存的手写重复实现 | ✅ `utils/bounded_cache.py` |
+| CAP-UTIL-007 | 持久化效果队列 `AsyncEffectQueue`：可重试副作用按 (kind,key) 幂等入队、指数退避重试、可选 JSONL 持久化、pending/settled/failed 健康计数；`run_sql_durable` 接通 SQL 瞬时错误退避层（`effect_queue_max_retries>0`，默认 2） | ✅ `utils/effect_queue.py` / `tools/sql_tools.py` |
 | CAP-UTIL-002 | ECharts option 构建器 `build_echarts_option`（dataset + encode，字段缺失精确报错） | ✅ `utils/chart_spec.py` |
 | CAP-UTIL-003 | 导出管理 export_manager（CSV/XLSX，`export_max_rows` 采样上限） | ✅ |
 | CAP-UTIL-004 | 图表代码沙箱 `execute_chart_code`（安全 globals，非危险） + checkpoint 清理 | ✅ `chart_sandbox.py` / `checkpoint_cleanup.py` |
@@ -103,7 +106,7 @@
 |----|------|------|
 | CAP-EVAL-001 | Text2SQL 回归评测：`eval/run_eval.py` 多场景聚合 harness，跑分类语料 | ✅ |
 | CAP-EVAL-002 | 分类语料：`eval/cases/`（schema_linking / security_deny / routing_guard 三文件），另含 `mine_badcases.py` 扫日志 dump 坏 case | ✅ `schema_linking.json` / `security_deny.json` / `routing_guard.json` |
-| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 / 模型视图重建 | ✅ `tests/`（138 项通过） |
+| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 / 模型视图重建 / 准入门 / 单一写者 / 效果队列 | ✅ `tests/`（174 项通过，`py -m pytest tests/ -q`） |
 | CAP-EVAL-004 | `pytest tests/ -q` 为改动硬门槛 | ✅ |
 
 ## 10. Core：recon（模型视图可重建不变量，M1）
@@ -119,13 +122,13 @@
 
 | 能力域 | 状态 | 备注（候选/风险） |
 |--------|------|-------------------|
-| Configuration | implemented | — |
+| Configuration | implemented | 少设置审计：删除 4 个无消费方配置（`db_max_overflow`/`cache_ttl`/`redis_url`/`agent_verbose`），运行时常量以模块常量为准 |
 | core/database | implemented | `get_relevant_schemas` 仍基于硬编码关键词映射，候选改 Embedding 语义检索（见 tasks.md TASK-BACKLOG-001） |
-| core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器 `intent_guard` 已接线 `/query`（CAP-SEC-009，受 `ENABLE_INTENT_ROUTER` 门控，默认关） |
+| core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器已接线（CAP-SEC-009）；请求准入门 `admission_gate` 已落地（CAP-SEC-010，`enable_admission_gate` 默认关 + 注意力经济直答） |
 | Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008） |
 | Agent | implemented | 同步/异步两版能力对齐：载荷裁剪（condense_tool_results）+ 长上下文摘要 + 瞬时重试均具备 |
 | Middleware | implemented | — |
 | API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）与 checkpoint 维护端点（CAP-API-007） |
-| Utils | implemented | 新增 `bench.loadtest` 压测工具（CAP-UTIL-005） |
+| Utils | implemented | 新增 `bench.loadtest`（CAP-UTIL-005）；单一写者缓存原语 `BoundedTTLCache`（CAP-UTIL-006）；持久化效果队列（CAP-UTIL-007，SQL 瞬时后退避层） |
 | Eval & Tests | implemented | 语料分类化（`eval/cases/`）；含写操作/意图路由/并发回归测试；Golden 仍可扩展更多召回/关联/边界 case（TASK-BACKLOG-003） |
 | recon（可观测） | implemented | 模型视图可重建不变量（CAP-RECON-001/002，change：recon-model-view-invariant） |

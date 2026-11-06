@@ -42,6 +42,7 @@
 | TASK-SEC-007 | [done] | 任意代码执行默认关 | CAP-SEC-007 `tools/__init__.py` | `create_custom_chart` 仅 `enable_custom_chart=True` 才进工具集 |
 | TASK-SEC-008 | [done] | 写操作受边界保护 | CAP-SEC-008 `tools/sql_tools.py` | query_database 分派 INSERT/UPDATE/DELETE→返回受影响行数、写后清 schema 缓存、不入 result_store；DELETE/UPDATE 无 WHERE 仍 DENY |
 | TASK-SEC-009 | [done] | 确定性意图路由器 | CAP-SEC-009 `core/security/intent_guard.py` | NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，deny/clarify 语义；`ENABLE_INTENT_ROUTER` 默认关、仅评测直调未接线 |
+| TASK-SEC-010 | [done] | 请求准入门 + 注意力经济 | CAP-SEC-010 `core/security/admission.py` + `api/routes.py` | 来源×意图准入判定（admit/deny/clarify/reply）；`maybe_gate` 接线 `/query`（`enable_admission_gate` 默认关、只短路 deny/reply）；allowlist 校验 `X-Admission-Key`；寒暄/INFO 固定直答 |
 
 ## 4. 工具层与权限边界（TASK-TOOL-*）
 
@@ -88,11 +89,13 @@
 
 | ID | 状态 | 任务 | 范围（CAP / 文件） | 验收要点 |
 |----|------|------|--------------------|----------|
-| TASK-UTIL-001 | [done] | 结果引用缓存有界 | CAP-UTIL-001 `utils/result_store.py` | 上限 50 条 / 10 分钟过期 |
+| TASK-UTIL-001 | [done] | 结果引用缓存有界 | CAP-UTIL-001 `utils/result_store.py` | 上限 50 条 / 10 分钟过期（代理到 `BoundedTTLCache`） |
 | TASK-UTIL-002 | [done] | ECharts option 构建器 | CAP-UTIL-002 `utils/chart_spec.py` | dataset + encode；字段缺失精确报错 |
 | TASK-UTIL-003 | [done] | 导出管理 | CAP-UTIL-003 `export_manager.py` | CSV/XLSX；`export_max_rows` 采样上限 |
 | TASK-UTIL-004 | [done] | 图表沙箱 + checkpoint 清理 | CAP-UTIL-004 | 安全 globals 沙箱；checkpoint_cleanup 可用 |
 | TASK-UTIL-005 | [done] | 并发压测工具 | CAP-UTIL-005 `bench/loadtest.py` | health/ping/query、thread-mode、--dry-run、Bearer 鉴权 |
+| TASK-UTIL-006 | [done] | 单一写者缓存原语 | CAP-UTIL-006 `utils/bounded_cache.py` | `BoundedTTLCache`（写/淘汰集中于一个类、读非摧毁式）；Chart 读路径去 `.pop()`；`docs/state-owners.md` 记录各状态唯一写者；消除 result_store/图表 spec 重复实现 |
+| TASK-UTIL-007 | [done] | 持久化效果队列 + 指数退避 | CAP-UTIL-007 `utils/effect_queue.py` + `tools/sql_tools.py` | `AsyncEffectQueue`（key 幂等入队、指数退避、可选 JSONL 持久化、pending/settled/failed）；`run_sql_durable` 接通 SQL 瞬时错误退避层（`effect_queue_max_retries` 默认 2） |
 
 ## 8. 评测与测试（TASK-EVAL-*）
 
@@ -100,7 +103,7 @@
 |----|------|------|--------------------|----------|
 | TASK-EVAL-001 | [done] | Text2SQL 回归评测 | CAP-EVAL-001 `eval/run_eval.py` | 多场景聚合 harness，跑分类语料 |
 | TASK-EVAL-002 | [done] | 分类语料基线 | CAP-EVAL-002 `eval/cases/` | schema_linking/security_deny/routing_guard 三文件；`mine_badcases.py` 扫日志 dump 坏 case |
-| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建（138 项） |
+| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建/准入门/单一写者/效果队列（174 项通过） |
 | TASK-EVAL-004 | [done] | 测试硬门槛 | CAP-EVAL-004 | `pytest tests/ -q` 全绿为改动门槛 |
 
 ## 9. 可观测（recon）（TASK-RECON-*）
@@ -155,7 +158,7 @@
 
 **TASK-BACKLOG-006 · 多 worker + Redis 共享缓存（P2）**
 - 动机：单 worker 默认安全，但扩 worker 后 result_store/chart 缓存为每进程内存，`/query` 的 result_id 与 `/chart/option` 取图跨 worker 会 404。
-- 落点：`utils/result_store.py` / `tools/chart_tools.py` 缓存后端改 `redis_url`（已预留配置）；checkpointer/store 已走 PG 天然可跨。
+- 落点：`utils/result_store.py` / `tools/chart_tools.py` 缓存后端改持久化（需**重新引入** Redis 类配置——`redis_url` 配置已在少设置审计中删除，见 `config/settings.py`）；checkpointer/store 已走 PG 天然可跨。
 - 成本：高（引入 Redis 依赖 + 缓存语义改造 + 并发一致性测试）。
 - 收益：横向扩并发、多 worker 可用。
 - 关联：CAP-UTIL-001 / CAP-UTIL-002 / CAP-API-006。
@@ -193,7 +196,11 @@
 - `export_result` 接入统一 SQL 守卫（原 TASK-BACKLOG-004，[done]）：`tools/analysis_tools.py` 改用 `guard_query_sql`，测试 `test_export_result_rejects_system_table_without_db`；change 见 `openspec/archived/export-result-guard/`。backlog 恒为 `[todo]`，done 项仅在正文 TASK 表记录。
 - 同步 agent 补消息裁剪中间件（原 TASK-BACKLOG-002，[done]）：同步版 `create_agent`（`agent/analyst_agent.py`）已与异步版一致追加 `condense_tool_results_middleware` 与 `SummarizationMiddleware`，本 backlog 项实际已实现，归档移出。
 - 意图路由器接线 `/query`（原 TASK-BACKLOG-004，[done]）：`core/security/intent_guard.py` 新增 `maybe_short_circuit` 纯函数，`api/routes.py` `/query` 前置接线；受 `ENABLE_INTENT_ROUTER`（默认关）门控、只短路 deny 不短路 clarify（保守低误杀）；测试 `tests/test_intent_router_wiring.py`（7 例）。change 见 `openspec/archived/intent-router-wiring/`。
+- 请求准入门 + 注意力经济（原 TASK-BACKLOG-010 准入部分，[done]）：`core/security/admission.py` 的 `AdmissionGate.maybe_gate` 接线 `/query`（CAP-SEC-010）；allowlist 来源准入 + 寒暄/INFO 直答；change 见 `openspec/archived/admission-gate-attention/`。
+- 单一写者纪律（[done]）：`utils/bounded_cache.py` `BoundedTTLCache` 收敛两处重复缓存 + 读路径非摧毁式；`docs/state-owners.md`（CAP-UTIL-006）；change 见 `openspec/archived/single-writer-discipline/`。
+- 少设置审计（[done]）：删除 `db_max_overflow`/`cache_ttl`/`redis_url`/`agent_verbose` 四个无消费方配置；change 见 `openspec/archived/few-settings-audit/`。
+- 持久化效果队列 + 指数退避（[done]）：`utils/effect_queue.py` `AsyncEffectQueue` + `run_sql_durable` 接通 SQL 瞬时错误退避层（CAP-UTIL-007）；change 见 `openspec/archived/durable-effect-queue/`。
 
 ---
 
-*版本：v0.2（对齐代码基线：写操作/意图路由/压测/可观测 + backlog 扩为带优先级路线） | 更新：2026-10-29*
+*版本：v0.3（对齐 dsh 迁移四改动：准入门/单一写者/少设置/效果队列；backlog B006 云去 redis_url） | 更新：2026-11-06*

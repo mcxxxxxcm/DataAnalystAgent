@@ -346,19 +346,34 @@ async def query(request: QueryRequest):
     - Agent 会记住之前的上下文，理解"那"指代的是"销售额"
     """
     from agent import get_async_agent
+    from config.settings import get_settings
+    from core.security.admission import maybe_gate
 
     start_time = time.time()
     thread_id = request.thread_id or str(uuid.uuid4())
 
-    # 确定性意图前置门：ENABLE_INTENT_ROUTER=True 时，明确恶意/寒暄/离题请求短路，不进 LLM
-    reject_reply = await maybe_short_circuit(request.query)
-    if reject_reply:
-        return QueryResponse(
-            success=False,
-            thread_id=thread_id,
-            message=reject_reply,
-            execution_time_ms=(time.time() - start_time) * 1000,
+    # 请求准入门（来源×意图，注意力经济）：enable_admission_gate=True 时优先，未准入门/可直答短路不进 LLM
+    if get_settings().enable_admission_gate:
+        admission_reply = await maybe_gate(
+            request.query, source=request.headers.get("X-Admission-Key")
         )
+        if admission_reply:
+            return QueryResponse(
+                success=False,
+                thread_id=thread_id,
+                message=admission_reply,
+                execution_time_ms=(time.time() - start_time) * 1000,
+            )
+    else:
+        # 确定性意图前置门：ENABLE_INTENT_ROUTER=True 时，明确恶意/寒暄/离题请求短路，不进 LLM
+        reject_reply = await maybe_short_circuit(request.query)
+        if reject_reply:
+            return QueryResponse(
+                success=False,
+                thread_id=thread_id,
+                message=reject_reply,
+                execution_time_ms=(time.time() - start_time) * 1000,
+            )
 
     try:
         agent = await get_async_agent()
