@@ -73,6 +73,53 @@ def test_multi_statement_injection(validator):
     assert not result.is_valid
 
 
+# -------------------- 恒真/恒假布尔注入加固（injection-defense-hardening） --------------------
+
+def test_numeric_tautology_rejected(validator):
+    # WHERE 1=1 恒真 → 注入
+    result = validator.validate("SELECT * FROM sales WHERE 1=1")
+    assert not result.is_valid
+    assert result.error_type.value == "injection_attempt"
+
+
+def test_or_numeric_tautology_rejected(validator):
+    # OR 1=1 → 注入
+    result = validator.validate("SELECT * FROM sales WHERE id=10 OR 1=1")
+    assert not result.is_valid
+    assert result.error_type.value == "injection_attempt"
+
+
+def test_string_tautology_rejected(validator):
+    # OR 'a'='b'（恒假字面比较，布尔盲注探测）→ 注入
+    result = validator.validate("SELECT * FROM users WHERE name='a' OR 'a'='b'")
+    assert not result.is_valid
+    assert result.error_type.value == "injection_attempt"
+
+
+def test_string_eq_string_rejected(validator):
+    # '1'='1' 恒真 → 注入
+    result = validator.validate("SELECT * FROM sales WHERE region='x' OR '1'='1'")
+    assert not result.is_valid
+
+
+def test_legit_column_eq_literal_not_rejected(validator):
+    # 标识符=字面量：合法过滤，绝不误杀
+    result = validator.validate("SELECT * FROM sales WHERE region='Jingdong'")
+    assert result.is_valid
+
+
+def test_legit_identifier_comparison_not_rejected(validator):
+    # 标识符>数字：合法的常量过滤
+    result = validator.validate("SELECT * FROM orders WHERE amount > 100")
+    assert result.is_valid
+
+
+def test_legit_id_eq_not_rejected(validator):
+    # id=1（标识符=数字）合法 → 不误杀
+    result = validator.validate("SELECT * FROM sales WHERE id=1")
+    assert result.is_valid
+
+
 # -------------------- SQLSanitizer --------------------
 
 @pytest.fixture

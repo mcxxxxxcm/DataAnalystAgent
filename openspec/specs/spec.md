@@ -23,7 +23,7 @@
 |----|------|------|
 | CAP-DB-001 | 异步连接池（asyncpg），`fetch(sql, timeout)` 严格执行超时 | ✅ `pool.py` |
 | CAP-DB-002 | Schema 管理：list_tables / get_table_schema / get_sample_data | ✅ `schema.py` |
-| CAP-DB-003 | 相关表召回（schema linking）：按相关性评分排序、上限 `schema_max_relevant_tables`、命中理由 | ✅ `schema_linking.py` |
+| CAP-DB-003 | 相关表召回（schema linking）：按相关性评分排序、上限 `schema_max_relevant_tables`、命中理由；可选语义重排 `rerank_with_embeddings`（关键词分 + embed 相似度加权，`schema_embed_enabled` 默认关零变化、失败静默回退关键词） | ✅ `schema_linking.py` |
 | CAP-DB-004 | 低基数列样例值抓取开关（`schema_value_profiling`） | ✅ |
 | CAP-DB-005 | 表/结构缓存有界（不无界增长） | ✅ |
 
@@ -38,9 +38,10 @@
 | CAP-SEC-005 | 结构化 SQL 错误自纠：13 类错误分类 + SQLSTATE + 修复建议，回喂 LLM 驱动重试 | ✅ `sql_error.py` |
 | CAP-SEC-006 | 写操作默认不放行：`enable_sql_write` 为 False 时写 SQL 校验失败 | ✅ |
 | CAP-SEC-007 | 任意代码执行默认关：`create_custom_chart` 仅显式 `enable_custom_chart=True` 才进工具集 | ✅ `tools/__init__.py` |
-| CAP-SEC-008 | 写操作受边界保护：`query_database` 分派 INSERT/UPDATE/DELETE → 返回受影响行数、写后失效 schema 缓存、不入 result_store；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY | ✅ `tools/sql_tools.py` |
+| CAP-SEC-008 | 写操作受边界保护：`query_database` 分派 INSERT/UPDATE/DELETE → 返回受影响行数、写后失效 schema 缓存、不入 result_store；`enable_sql_write` 默认关 + HITL 强制人审；DELETE/UPDATE 无 WHERE 仍 DENY。写语句带 `RETURNING` 时走 fetch 抓回写入行回显 data/columns（仍不入 store）；多行 `VALUES (...),(...)` 即单条批量插入 | ✅ `tools/sql_tools.py` |
 | CAP-SEC-009 | 确定性意图路由器 `intent_guard`：NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，带 deny/clarify 语义；`maybe_short_circuit` 已接线 `/query`（受 `ENABLE_INTENT_ROUTER` 门控，默认关、只短路 deny 不短路 clarify） | ✅ `core/security/intent_guard.py` / `api/routes.py` |
 | CAP-SEC-010 | 确定性请求准入门 `admission_gate`：来源×意图合成准入判定（admit/deny/clarify/reply），迁移 dsh 的 Policy/gate/admission-table + 注意力经济；`maybe_gate` 接线 `/query`（`enable_admission_gate` 门控，默认关、只短路 deny/reply 不短路 clarify）；allowlist 模式校验 `X-Admission-Key`；寒暄/结构询问固定直答不烧 LLM | ✅ `core/security/admission.py` / `api/routes.py` / `config/settings.py` |
+| CAP-SEC-011 | 注入检测加固：拦截「恒真/恒假布尔注入」——仅当比较符**两侧都是字面量**（`数字=数字`、`'串'='串'`）才拒绝；`列='值'`/`列>数字` 左是标识符不命中 → 不误杀；收掉恒真 `OR '1'='1'` 待办 | ✅ `core/security/sql_validator.py`（`TAUTOLOGY_PATTERNS`） |
 
 ## 4. Tools（tools/）
 
@@ -105,9 +106,10 @@
 | ID | 需求 | 现状 |
 |----|------|------|
 | CAP-EVAL-001 | Text2SQL 回归评测：`eval/run_eval.py` 多场景聚合 harness，跑分类语料 | ✅ |
-| CAP-EVAL-002 | 分类语料：`eval/cases/`（schema_linking / security_deny / routing_guard 三文件），另含 `mine_badcases.py` 扫日志 dump 坏 case | ✅ `schema_linking.json` / `security_deny.json` / `routing_guard.json` |
-| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 / 模型视图重建 / 准入门 / 单一写者 / 效果队列 | ✅ `tests/`（174 项通过，`py -m pytest tests/ -q`） |
+| CAP-EVAL-002 | 分类语料：`eval/cases/`（schema_linking / security_deny / routing_guard 三文件，41 例），另含 `mine_badcases.py` 扫日志 dump / 自动沉淀坏 case | ✅ `schema_linking.json`（11）/ `security_deny.json`（13）/ `routing_guard.json`（17） |
+| CAP-EVAL-003 | 单元测试：安全校验 / 工具边界 / 载荷裁剪 / 返回结构 / SQL 错误 / 图表 spec / 写操作 / 意图路由器 / 评测回归 / 并发 / 模型视图重建 / 准入门 / 单一写者 / 效果队列 / 注入加固 / 写 RETURNING / 语义重排 / 坏case沉淀 | ✅ `tests/`（203 项通过，`py -m pytest tests/ -q`） |
 | CAP-EVAL-004 | `pytest tests/ -q` 为改动硬门槛 | ✅ |
+| CAP-EVAL-005 | 坏 case 自动沉淀：`mine_badcases --sink-security [--apply]` 把被安全/校验层拒绝的 `query_database` 失败调用按规范化 SQL 去重写进 `security_deny.json`（默认 dry-run、幂等） | ✅ `eval/mine_badcases.py` |
 
 ## 10. Core：recon（模型视图可重建不变量，M1）
 
@@ -123,12 +125,12 @@
 | 能力域 | 状态 | 备注（候选/风险） |
 |--------|------|-------------------|
 | Configuration | implemented | 少设置审计：删除 4 个无消费方配置（`db_max_overflow`/`cache_ttl`/`redis_url`/`agent_verbose`），运行时常量以模块常量为准 |
-| core/database | implemented | `get_relevant_schemas` 仍基于硬编码关键词映射，候选改 Embedding 语义检索（见 tasks.md TASK-BACKLOG-001） |
-| core/security | implemented | 写操作已落地（CAP-SEC-008）；意图路由器已接线（CAP-SEC-009）；请求准入门 `admission_gate` 已落地（CAP-SEC-010，`enable_admission_gate` 默认关 + 注意力经济直答） |
+| core/database | implemented | schema linking 关键词打分打底，可选 Embedding 语义重排已落地（CAP-DB-003，`schema_embed_enabled` 默认关 + 失败回退关键词） |
+| core/security | implemented | 写操作已落地（CAP-SEC-008 + RETURNING 回看）；意图路由器已接线（CAP-SEC-009）；请求准入门 `admission_gate` 已落地（CAP-SEC-010）；注入检测加固恒真假字符文本拦（CAP-SEC-011） |
 | Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008） |
 | Agent | implemented | 同步/异步两版能力对齐：载荷裁剪（condense_tool_results）+ 长上下文摘要 + 瞬时重试均具备 |
 | Middleware | implemented | — |
 | API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）与 checkpoint 维护端点（CAP-API-007） |
 | Utils | implemented | 新增 `bench.loadtest`（CAP-UTIL-005）；单一写者缓存原语 `BoundedTTLCache`（CAP-UTIL-006）；持久化效果队列（CAP-UTIL-007，SQL 瞬时后退避层） |
-| Eval & Tests | implemented | 语料分类化（`eval/cases/`）；含写操作/意图路由/并发回归测试；Golden 仍可扩展更多召回/关联/边界 case（TASK-BACKLOG-003） |
+| Eval & Tests | implemented | 语料扩集 41 例（schema_linking 11 / security_deny 13 / routing_guard 17）；含写操作/意图路由/并发/注入加固/语义重排/坏case沉淀回归测试；`mine_badcases --sink-security` 自动沉淀坏 case |
 | recon（可观测） | implemented | 模型视图可重建不变量（CAP-RECON-001/002，change：recon-model-view-invariant） |

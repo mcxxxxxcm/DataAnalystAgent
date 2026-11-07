@@ -46,5 +46,45 @@
     "expected": ["orders"],
     "source": "log",
     "note": "订单金额→orders 应排在 sales 之前（订单优先），回归表检索排序"
+  },
+  {
+    "id": "s07",
+    "scenario": "schema_linking",
+    "nl": "各地区销售额和注册用户数",
+    "expected": ["sales", "users"],
+    "source": "nl",
+    "note": "多表关联同时召回：销售额→sales、用户→users 都在 top-K"
+  },
+  {
+    "id": "s08",
+    "scenario": "schema_linking",
+    "nl": "按商品类别统计平均价格",
+    "expected": ["products"],
+    "source": "nl",
+    "note": "列名驱动：price 列命中 products"
+  },
+  {
+    "id": "s09",
+    "scenario": "schema_linking",
+    "nl": "会员等级分布情况",
+    "expected": ["users"],
+    "source": "nl",
+    "note": "列注释驱动：vip_level 注释「会员等级」命中 users"
+  },
+  {
+    "id": "s10",
+    "scenario": "schema_linking",
+    "nl": "每个订单包含的产品",
+    "expected": ["orders", "products"],
+    "source": "nl",
+    "note": "跨表双命中：订单→orders、产品(关键词)→products 优先进入 top-K"
+  },
+  {
+    "id": "s11",
+    "scenario": "schema_linking",
+    "nl": "销售额超10万的订单",
+    "expected": ["sales", "orders"],
+    "source": "nl",
+    "note": "跨表双命中：销售额→sales、订单→orders"
   }
 ]

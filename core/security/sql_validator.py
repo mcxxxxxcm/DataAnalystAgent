@@ -99,6 +99,14 @@ class SQLValidator:
         r'#\s*(drop|delete|truncate|insert|update)',
     ]
 
+    # 恒真/恒假布尔注入（两侧均须为字面量：数字或引号串）。
+    # 关键：要求比较符两侧都是字面量，`region='Jingdong'`、`amount>100` 左是标识符，
+    # 不命中 → 不误杀合法过滤；只有 `1=1`、`'a'='a'` 这类字面量自比才判可疑。
+    TAUTOLOGY_PATTERNS: List[str] = [
+        r"(?<![A-Za-z0-9_])\d+\s*(=|<|>|<=|>=|<>|!=)\s*\d+",          # 数字 vs 数字
+        r"'[^']*'\s*(=|<|>|<>|!=)\s*'[^']*'",                        # 引号串 vs 引号串
+    ]
+
     def __init__(
             self,
             max_rows: int = 10000,
@@ -279,6 +287,11 @@ class SQLValidator:
 
         # 检查危险注释模式
         for pattern in self.DANGEROUS_COMMENT_PATTERNS:
+            if re.search(pattern, sql_lower, re.IGNORECASE | re.DOTALL):
+                return True
+
+        # 检查恒真/恒假布尔注入（字面量 vs 字面量自比）
+        for pattern in self.TAUTOLOGY_PATTERNS:
             if re.search(pattern, sql_lower, re.IGNORECASE | re.DOTALL):
                 return True
 

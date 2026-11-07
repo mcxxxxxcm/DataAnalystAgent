@@ -115,6 +115,12 @@ class TableIndex:
             'column_comments': _tokenize(' '.join(str(c.get('comment', '') or '') for c in cols)),
             'table_comment': _tokenize(table_comment or ''),
             'synonyms': synonyms or {},
+            # 表+注释+列的合成文本，供可选 embedding 语义重排生成相似度（不存向量，保持零新依赖）
+            'vector_text': ' '.join(
+                [table, table_comment or '',
+                 *[c.get('name', '') for c in cols],
+                 *[str(c.get('comment', '') or '') for c in cols]]
+            ).strip().lower(),
         })
         self._ready = True
 
@@ -225,3 +231,39 @@ def rank_relevant_tables(
         ScoredTable(t, 0.0, ["兜底:无强命中，回退常用表"])
         for t in fallback[:max_tables]
     ]
+
+
+def rerank_with_embeddings(
+    query: str,
+    candidates: List[ScoredTable],
+    index: TableIndex,
+    embed_sim=None,
+    weight: float = 1.0,
+) -> List[ScoredTable]:
+    """
+    用「查询 × 候选表合成文本」的语义相似度对关键词候选做加权重排。
+
+    参数：
+        embed_sim: 可调用 embed_sim(query:str, table_text:str) -> float，返回 [0,1] 相似度；
+        weight: 语义分权重；为 0 或 embed_sim 为 None 时顺序不变（纯关键词）。
+    实现：final = 关键词分 + weight * similarity；稳定排序按 (score desc, table)。
+
+    纯函数、不触 DB/网络/向量库；语义只作增量校准，关键词仍是基座（默认零行为变化）。
+    """
+    if weight == 0 or not embed_sim or not candidates:
+        return candidates
+
+    text_by_table = {e['table']: e.get('vector_text') or '' for e in index._tables}
+    reranked: List[ScoredTable] = []
+    for c in candidates:
+        text = text_by_table.get(c.table, '')
+        sim = 0.0
+        if text:
+            try:
+                sim = float(embed_sim(query, text))
+            except (TypeError, ValueError):
+                sim = 0.0
+        reranked.append(ScoredTable(c.table, round(c.score + weight * sim, 2), c.reasons))
+
+    reranked.sort(key=lambda s: (-s.score, s.table))
+    return reranked

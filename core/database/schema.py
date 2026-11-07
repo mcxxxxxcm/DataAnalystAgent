@@ -5,13 +5,17 @@
 职责：获取和管理数据库结构信息，不暴露给LLM
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime
 import asyncio
+import importlib
+import logging
 
 from core.database.pool import db_pool
-from core.database.schema_linking import TableIndex, rank_relevant_tables, build_synonym_map
+from core.database.schema_linking import (
+    TableIndex, rank_relevant_tables, build_synonym_map, rerank_with_embeddings,
+)
 from config.settings import get_settings
 
 
@@ -86,6 +90,8 @@ class SchemaManager:
         self._cache_ttl = 3600
         self._index: Optional[TableIndex] = None
         self._recent: List[str] = []  # 近期使用过的表（按使用顺序），兜底用
+        self._embed_sim: Optional[Callable] = None  # 可选语义 embedder（懒加载，失败静默回退）
+        self._embed_warned: bool = False
 
     async def list_tables(self) -> List[str]:
         """列出所有业务表名（排除系统表）"""
@@ -200,6 +206,11 @@ class SchemaManager:
             priority_tables=self._priority_tables(),
             user_synonyms=settings.user_synonym_map,
         )
+        # 可选语义重排：关键词仍打底，embeddings 仅作增量校准；失败静默回退（语义为加分项）
+        if settings.schema_embed_enabled:
+            embed_sim = await self._get_embed_sim()
+            if embed_sim is not None:
+                candidates = rerank_with_embeddings(query, candidates, index, embed_sim)
 
         # 排名摘要行（供 LLM 决策 + HITL 轨迹复用）
         ranking_summary = "相关表(按相关性): " + ", ".join(
@@ -217,6 +228,24 @@ class SchemaManager:
             schema_descriptions.append(text)
 
         return "\n\n".join(schema_descriptions)
+
+    async def _get_embed_sim(self):
+        """按配置懒加载语义 embedder（工厂 f() -> callable(query, table_text)->float）；失败返回 None 静默回退。"""
+        settings = get_settings()
+        if not settings.schema_embed_enabled or not settings.schema_embed_fn:
+            return None
+        if self._embed_sim is not None:
+            return self._embed_sim
+        try:
+            mod_path, _, attr = settings.schema_embed_fn.rpartition(".")
+            factory = getattr(importlib.import_module(mod_path), attr)
+            self._embed_sim = factory()
+            return self._embed_sim
+        except Exception as e:  # noqa: BLE001 —— 语义增强失败不应阻断查询
+            if not self._embed_warned:
+                self._embed_warned = True
+                logging.getLogger(__name__).warning("schema embedder 加载失败，回退关键词检索: %s", e)
+            return None
 
     def _priority_tables(self) -> List[str]:
         """配置/常见业务表兜底顺序。"""

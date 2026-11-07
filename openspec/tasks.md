@@ -28,6 +28,7 @@
 | TASK-DB-003 | [done] | 相关表召回（schema linking） | CAP-DB-003 `schema_linking.py` | 相关性评分排序、上限 `schema_max_relevant_tables`、命中理由 |
 | TASK-DB-004 | [done] | 低基数列样例抓取开关 | CAP-DB-004 | `schema_value_profiling` 开关生效 |
 | TASK-DB-005 | [done] | 表/结构缓存有界 | CAP-DB-005 | 缓存带容量/TTL，不无界增长 |
+| TASK-DB-006 | [done] | Embedding 语义重排（可选） | CAP-DB-003 `core/database/schema_linking.py` + `schema.py` + `config/settings.py` | `rerank_with_embeddings` 关键词分+embed 相似度加权；`schema_embed_enabled`（默认关）零行为变化、失败静默回退关键词 |
 
 ## 3. SQL 安全（TASK-SEC-*）
 
@@ -40,9 +41,10 @@
 | TASK-SEC-005 | [done] | SQL 错误自纠 | CAP-SEC-005 `sql_error.py` | 13 类错误分类 + SQLSTATE + 修复建议，回喂 LLM 重试 |
 | TASK-SEC-006 | [done] | 写操作默认不放行 | CAP-SEC-006 | `enable_sql_write=False` 时写 SQL 校验失败 |
 | TASK-SEC-007 | [done] | 任意代码执行默认关 | CAP-SEC-007 `tools/__init__.py` | `create_custom_chart` 仅 `enable_custom_chart=True` 才进工具集 |
-| TASK-SEC-008 | [done] | 写操作受边界保护 | CAP-SEC-008 `tools/sql_tools.py` | query_database 分派 INSERT/UPDATE/DELETE→返回受影响行数、写后清 schema 缓存、不入 result_store；DELETE/UPDATE 无 WHERE 仍 DENY |
+| TASK-SEC-008 | [done] | 写操作受边界保护 | CAP-SEC-008 `tools/sql_tools.py` | query_database 分派 INSERT/UPDATE/DELETE→返回受影响行数、写后清 schema 缓存、不入 result_store；DELETE/UPDATE 无 WHERE 仍 DENY；带 `RETURNING` 走 fetch 回显写入行、VALUES 多行为单条批量 |
 | TASK-SEC-009 | [done] | 确定性意图路由器 | CAP-SEC-009 `core/security/intent_guard.py` | NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，deny/clarify 语义；`ENABLE_INTENT_ROUTER` 默认关、仅评测直调未接线 |
 | TASK-SEC-010 | [done] | 请求准入门 + 注意力经济 | CAP-SEC-010 `core/security/admission.py` + `api/routes.py` | 来源×意图准入判定（admit/deny/clarify/reply）；`maybe_gate` 接线 `/query`（`enable_admission_gate` 默认关、只短路 deny/reply）；allowlist 校验 `X-Admission-Key`；寒暄/INFO 固定直答 |
+| TASK-SEC-011 | [done] | 注入检测加固（恒真假布尔） | CAP-SEC-011 `core/security/sql_validator.py` | 两侧均字面量比较（数字=数字/串=串）拒绝；`列='值'`/`列>数字` 不误杀；收 `eval/badcases.md` 待办 |
 
 ## 4. 工具层与权限边界（TASK-TOOL-*）
 
@@ -102,9 +104,10 @@
 | ID | 状态 | 任务 | 范围（CAP / 文件） | 验收要点 |
 |----|------|------|--------------------|----------|
 | TASK-EVAL-001 | [done] | Text2SQL 回归评测 | CAP-EVAL-001 `eval/run_eval.py` | 多场景聚合 harness，跑分类语料 |
-| TASK-EVAL-002 | [done] | 分类语料基线 | CAP-EVAL-002 `eval/cases/` | schema_linking/security_deny/routing_guard 三文件；`mine_badcases.py` 扫日志 dump 坏 case |
-| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建/准入门/单一写者/效果队列（174 项通过） |
+| TASK-EVAL-002 | [done] | 分类语料基线 | CAP-EVAL-002 `eval/cases/` | schema_linking(11)/security_deny(13)/routing_guard(17) 三文件 41 例；`mine_badcases.py` 扫日志 dump + `--sink-security` 自动沉淀坏 case |
+| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建/准入门/单一写者/效果队列/注入加固/写 RETURNING/语义重排/坏case沉淀（203 项通过） |
 | TASK-EVAL-004 | [done] | 测试硬门槛 | CAP-EVAL-004 | `pytest tests/ -q` 全绿为改动门槛 |
+| TASK-EVAL-005 | [done] | 坏 case 自动沉淀 | CAP-EVAL-005 `eval/mine_badcases.py` | `--sink-security [--apply]` 把被安全层拒绝的 query_database 失败按归一 SQL 去重写进 security_deny.json（默认 dry-run、幂等） |
 
 ## 9. 可观测（recon）（TASK-RECON-*）
 
@@ -124,30 +127,12 @@
 
 | ID | 优先级 | 候选任务 | 核心动机 | 落点 |
 |----|--------|----------|----------|------|
-| B001 | P1 | Embedding schema 语义检索 | `get_relevant_schemas` 硬编码关键词映射，表多召回不稳 | `core/database/schema_linking.py` |
-| B003 | P2 | 评测语料扩集（召回/关联/边界） | 用例较少、回归覆盖不足 | `eval/cases/*` |
 | B005 | P0 | LLM 提示词缓存省计费 | 相同系统提示词每次全量计费 | `middleware/` / LLM 侧缓存 |
 | B006 | P2 | 多 worker + Redis 共享缓存 | 单 worker 内存缓存跨进程 miss（result_store/chart） | `utils/` / `config/settings.py` |
 | B007 | P1 | 可观测: OpenTelemetry metrics/追踪 | 缺统一指标与链路追踪，压测定界难 | 新增 `observability/` + `GET /metrics` |
-| B008 | P2 | 写操作增强:RETURNING/批量/事务 | 写后只能见行数，无法回看写入数据 | `tools/sql_tools.py` |
-| B009 | P1 | 更严注入检测 + 坏 case 自动扩集 | 恒真注入 `OR '1'='1'` 等在 SQL 层不拦 | `core/security/` + `eval/mine_badcases.py` |
 | B010 | P2 | 表/列级 RBAC + 速率限制/配额 | 仅有登录鉴权，无最小授权/防滥用 | `api/` + `tools/boundaries.py` |
 
 ### 详情
-
-**TASK-BACKLOG-001 · Embedding schema 语义检索（P1）**
-- 动机：`get_relevant_schemas` 仍基于硬编码关键词/同义词映射，表多或措辞新时召回不稳。
-- 落点：`core/database/schema_linking.py`（接入 embedding 模型对表/列注释做向量召回，关键词作回退）。
-- 成本：中（引入 embedding 依赖/向量存储 + 评测调参）。
-- 收益：召回精度提升 → 减少 LLM 错表/错列与重试。
-- 关联：CAP-DB-003 / CAP-AGENT-002。
-
-**TASK-BACKLOG-003 · 评测语料扩集（P2）**
-- 动机：`eval/cases/` 分类用例仍较少，召回/关联/安全边界覆盖不足。
-- 落点：`eval/cases/schema_linking.json` / `security_deny.json` / `routing_guard.json` 扩充。
-- 成本：低-中（造语料 + 定金标准则）。
-- 收益：回归更稳，防退化。
-- 关联：CAP-EVAL-001/002/003。
 
 **TASK-BACKLOG-005 · LLM 提示词缓存省计费（P0）**
 - 动机：系统提示词（长、多段）每请求/每轮全量计费，可缓存命中省钱。
@@ -170,20 +155,6 @@
 - 收益：性能瓶颈与错误可视化，支撑压测闭环与生产排障。
 - 关联：CAP-API-006 / CAP-MID-001。
 
-**TASK-BACKLOG-008 · 写操作增强: RETURNING/批量/事务（P2）**
-- 动机：写操作目前只返回受影响行数，用户看不到写入后的真实数据；无批量/事务编排。
-- 落点：`tools/sql_tools.py`（写分派支持 RETURNING 回传、可选事务包裹多语句）。
-- 成本：中（SQL 改写 + 返回结构扩展 + 边界收紧）。
-- 收益：写后可直接回看、支持批量操作，工程/业务价值更高。
-- 关联：CAP-SEC-008 / CAP-TOOL-003。
-
-**TASK-BACKLOG-009 · 更严注入检测 + 坏 case 自动扩集（P1）**
-- 动机：恒真注入 `OR '1'='1'`、布尔盲注等当前在 SQL 层不拦（`badcases.md` 待办）；坏 case 需人工沉淀。
-- 落点：`core/security/sql_validator.py` / `sql_sanitizer.py` 补 pattern；`eval/mine_badcases.py` 全自动把失败调用沉淀成 `security_deny.json` 用例。
-- 成本：中（扩展校验 + 自动沉淀管道）。
-- 收益：注入防线更密、坏 case 持续自我补强。
-- 关联：CAP-SEC-001/002 / CAP-EVAL-002。
-
 **TASK-BACKLOG-010 · 表/列级 RBAC + 速率限制/配额（P2）**
 - 动机：现有仅 `API_AUTH_TOKEN` 登录鉴权 + 工具级 scope，无最小表/列授权与滥用防护。
 - 落点：`tools/boundaries.py` 表白名单按角色；`api/` 加速率限制/配额（配合鉴权）。
@@ -200,7 +171,11 @@
 - 单一写者纪律（[done]）：`utils/bounded_cache.py` `BoundedTTLCache` 收敛两处重复缓存 + 读路径非摧毁式；`docs/state-owners.md`（CAP-UTIL-006）；change 见 `openspec/archived/single-writer-discipline/`。
 - 少设置审计（[done]）：删除 `db_max_overflow`/`cache_ttl`/`redis_url`/`agent_verbose` 四个无消费方配置；change 见 `openspec/archived/few-settings-audit/`。
 - 持久化效果队列 + 指数退避（[done]）：`utils/effect_queue.py` `AsyncEffectQueue` + `run_sql_durable` 接通 SQL 瞬时错误退避层（CAP-UTIL-007）；change 见 `openspec/archived/durable-effect-queue/`。
+- 注入检测加固 + 坏 case 自动沉淀（原 TASK-BACKLOG-009，[done]）：`sql_validator.py` 恒真/恒假字面比较拦截（CAP-SEC-011）+ `mine_badcases --sink-security`（CAP-EVAL-005）；change 见 `openspec/archived/injection-defense-hardening/`。
+- 写操作 RETURNING/批量（原 TASK-BACKLOG-008，[done]）：写分派支持 `RETURNING` 回看写入行 + VALUES 多行批量（CAP-SEC-008 增强；多语句事务有意不做）；change 见 `openspec/archived/write-operations-enhanced/`。
+- Embedding schema 语义重排（原 TASK-BACKLOG-001，[done]）：`rerank_with_embeddings` 关键词分+embed 相似度加权，`schema_embed_enabled` 默认关零变化（CAP-DB-003 增强）；change 见 `openspec/archived/embedding-schema-retrieval/`。
+- 评测语料扩集（原 TASK-BACKLOG-003，[done]）：`eval/cases/` 扩至 41 例（CAP-EVAL-002）；change 见 `openspec/archived/eval-corpus-expansion/`。
 
 ---
 
-*版本：v0.3（对齐 dsh 迁移四改动：准入门/单一写者/少设置/效果队列；backlog B006 云去 redis_url） | 更新：2026-11-06*
+*版本：v0.4（对齐本轮四强化：注入加固/语义重排/写回看/语料扩集；backlog 剩 B005/B006/B007/B010） | 更新：2026-11-07*

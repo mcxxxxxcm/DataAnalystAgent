@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### 安全/检索/写操作/评测 四强化（注入加固 · 语义重排 · 写回看 · 语料扩集）
+
+- **注入检测加固**（CAP-SEC-011）：`core/security/sql_validator.py` 在注入检测层补「恒真/恒假布尔注入」——仅当比较符**两侧都是字面量**（`数字=数字`、`'串'='串'`）时拒绝（`WHERE 1=1`、`OR 1=1`、`OR 'a'='b'`）；`region='Jingdong'`、`amount>100` 左是标识符不命中 → **不误杀**（`accept03/04` 控制组锁死）。收掉 `eval/badcases.md` 的恒真注入待办。
+- **坏 case 自动沉淀**（CAP-EVAL-005）：`eval/mine_badcases.py` 新增 `--sink-security [--apply]`，把被安全/校验层拒绝的 `query_database` 失败调用按规范化 SQL 去重沉淀进 `security_deny.json`（默认 dry-run、幂等、跳过已存在）。
+- **Embedding 语义重排**（CAP-DB-003 增强）：`core/database/schema_linking.py` 新增纯函数 `rerank_with_embeddings`，把「查询 × 表合成文本」相似度与关键词分加权重排；新增配置 `schema_embed_enabled`（默认关零行为变化）+ `schema_embed_fn`（可选 embedder 点分导入）；`SchemaManager.get_relevant_schemas` 启用时尝试加载、失败静默回退关键词。关键词仍打底，零新依赖。
+- **写操作 RETURNING 回看 / VALUES 批量**（CAP-SEC-008 增强）：`tools/sql_tools.py` 写分派识别 `RETURNING`（走 `db_pool.fetch` 抓回写入行回显 `data/columns`，仍不入 result_store、写后仍清 schema 缓存）；多行 `VALUES (...),(...)` 即单条批量插入；docstring 提示 LLM。多语句事务**有意不做**（校验层拒堆叠语句是安全特性，非缺口）。
+- **评测语料扩集**（CAP-EVAL-002）：`eval/cases/` 追加——schema_linking 11 例（多表关联 s07/s10/s11、列名/列注释驱动 s08/s09）、routing_guard 17 例（折线/饼图 r13/r14、结构 r15、清空恶意 r16、合法聚合 r17）、security_deny 13 例（恒真注入拒 sec06-09 + 放行控制 accept03/04）。
+- `py -m pytest tests/ -q` **203 项全绿**（新增 `test_mine_badcases.py` / `test_write_returning.py` / `test_schema_embed.py` + `test_security.py` 增 7 例）；`py -m eval.run_eval` **41/41 不回归**。change 归档 `openspec/archived/{injection-defense-hardening,write-operations-enhanced,embedding-schema-retrieval,eval-corpus-expansion}/`。
+
 ### dsh 思想迁移四改动（准入门 · 单一写者 · 少设置 · 效果队列）
 
 迁移 deepseek 开源超级智能体（`dsh-superagent` / `deepseek-harness`）的哲学与架构到本项目：

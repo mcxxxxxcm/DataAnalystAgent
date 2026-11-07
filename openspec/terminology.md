@@ -25,7 +25,9 @@
 | TERM-018 | 注意力经济 | 只在「有人必须行动或能用到结果」时才应答/计算；低信号安全意图（寒暄/结构询问）固定直答不烧 LLM | `core/security/admission.py` `maybe_gate`；文案经 `intent_canonical_replies`（prompt text，非硬编码） |
 | TERM-019 | 单一写者（one-writer-per-state） | 每类可变状态只允许一个写者，其余只读或委托；读查询不写 | `utils/bounded_cache.py` / `docs/state-owners.md` |
 | TERM-020 | 效果队列（effect queue） | 可重试副作用按 key 幂等入队、指数退避重试、可选持久化、失败健康计数 | `utils/effect_queue.py`；`effect_queue_max_retries>0` 时接通 SQL 瞬时错误退避层 |
+| TERM-021 | 恒真/恒假布尔注入 | 比较符**两侧都是字面量**（`1=1`、`'a'='a'`）的自比表达式；校验层据此拒绝；`列='值'` 因左是标识符不命中 → 不误杀 | `core/security/sql_validator.py` `TAUTOLOGY_PATTERNS`（CAP-SEC-011） |
+| TERM-022 | 语义重排（embedding rerank） | 用「查询 × 表合成文本」相似度与关键词分加权重排 schema 召回；可选、默认关、失败回退关键词 | `core/database/schema_linking.py` `rerank_with_embeddings`；`schema_embed_enabled`（CAP-DB-003 增强） |
 
 ---
 
-*版本：v0.2（补准入门/注意力经济/单一写者/效果队列） | 更新：2026-11-06*
+*版本：v0.3（补恒真假注入/语义重排） | 更新：2026-11-07*

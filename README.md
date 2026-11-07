@@ -26,7 +26,7 @@
 |------|------|
 | 🧠 自然语言转 SQL | Agent 根据用户查询自动检索相关表结构并生成 SQL |
 | 🔒 多层 SQL 安全校验 | AST 解析 + 关键字/危险函数黑名单 + 注入检测 + 自动注入 LIMIT |
-| ✍️ 增删改写操作 | `query_database` 支持 INSERT/UPDATE/DELETE（`ENABLE_SQL_WRITE=true` 开启），返回受影响行数；DELETE/UPDATE 必须带 WHERE，写后失效 schema 缓存 |
+| ✍️ 增删改写操作 | `query_database` 支持 INSERT/UPDATE/DELETE（`ENABLE_SQL_WRITE=true` 开启），返回受影响行数；写语句加 `RETURNING` 可回看写入后的真实数据；多行 `VALUES (...),(...)` 即单条批量插入；DELETE/UPDATE 必须带 WHERE，写后失效 schema 缓存 |
 | 👤 人工审核 (HITL) | 写操作 / 高风险查询在执行前拦截，由人工 approve/reject |
 | 🧵 多轮对话短期记忆 | 基于 `AsyncPostgresSaver`，会话（thread_id）上下文持久化到 PostgreSQL |
 | 📊 自动图表 | `create_chart` 生成柱状图/折线图/饼图/散点图，图片 base64 返回前端 |
@@ -171,6 +171,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `ADMISSION_MODE` | `off` | 准入门来源模式：`off`=不校验来源（仅意图判定）/ `allowlist`=校验 `ADMISSION_ALLOWED_KEYS` 来源 key |
 | `ADMISSION_ALLOWED_KEYS` | 空 | allowlist 模式下允许的来源 key 集合（逗号分隔），经 `X-Admission-Key` 请求头校验 |
 | `INTENT_CANONICAL_REPLIES` | 空 | 注意力经济的固定直答文案（`意图:文案` 逗号分隔），供寒暄/结构询问低信号安全意图不烧 LLM |
+| `SCHEMA_EMBED_ENABLED` | `false` | 是否在 `get_relevant_schemas` 启用语义重排（关键词仍打底，语义仅增量校准）。默认关零行为变化 |
+| `SCHEMA_EMBED_FN` | 空 | 可选的 embedder 点分导入路径 `f() -> callable(query, table_text)->float`；空=不启用，失败静默回退关键词 |
 | `AUDIT_LOG_ENABLED` | `true` | 是否记录审批/拒绝等 HITL 决策到 `audit.jsonl` |
 | `RECON_MODEL_VIEW_ENABLED` | `true` | 是否在工具调用日志记录 `model_view`（与送入 LLM 同阈值裁剪的内容），供会话重建/审计 |
 
@@ -236,7 +238,7 @@ curl -X POST http://127.0.0.1:8085/api/approve \
 
 1. **AST 层校验**（`sql_validator.py`）：用 `sqlparse` 解析语法树判断 DML 类型，只允许白名单操作（默认仅 `SELECT`）。
 2. **黑名单检测**：禁止 `DROP / TRUNCATE / ALTER / CREATE / GRANT / REVOKE / EXEC`。
-3. **危险函数黑名单**：禁止 `load_file / pg_read_file / copy / lo_import` 等高风险函数。
+3. **危险函数黑名单**：禁止 `load_file / pg_read_file / copy / lo_import / sleep / benchmark` 等高风险函数。
 4. **注入检测**：识别 `--`/`/* */` 注释攻击、多语句拼接等模式。
 5. **自动 LIMIT**（`sql_sanitizer.py`）：对无 LIMIT 的 SELECT 自动注入 `LIMIT max_rows`，防止全表扫描与内存溢出。
 6. **风险评估**（`risk_assessor.py`）：结合复杂度、多表、写操作、无 WHERE、敏感表等维度评级，决定是否触发人工审核。
@@ -244,6 +246,7 @@ curl -X POST http://127.0.0.1:8085/api/approve \
 8. **日志脱敏**：工具调用中的密码、密钥等自动替换为 `***REDACTED***`。
 9. **NL 层前置拒答**（`intent_guard`，`ENABLE_INTENT_ROUTER=true` 开启）：`/query` 先用确定性意图分类器短路明确恶意 / 寒暄 / 离题请求，挡在进 LLM 之前省成本、缩窄风险面；只拒 `deny`、不拒歧义（保守低误杀）。默认关闭，不影响既有行为。
 10. **请求准入门 + 注意力经济**（`admission_gate`，`ENABLE_ADMISSION_GATE=true` 开启）：`/query` 按「来源 × 意图」合成确定性准入判定（admit/deny/clarify/reply）；只短路 `deny`/`reply`、不短路 `clarify`（低漏放）；`ADMISSION_MODE=allowlist` 时经 `X-Admission-Key` 校验来源；寒暄/结构询问低信号安全意图用固定文案直答，不烧 LLM。文案经 `INTENT_CANONICAL_REPLIES` 配置，非硬编码。默认关闭，不影响既有行为。
+11. **恒真/恒假布尔注入拦截**（`sql_validator.py` `TAUTOLOGY_PATTERNS`）：仅当比较符**两侧都是字面量**（`1=1`、`'a'='a'` 这类自比）才拒绝，`region='Jingdong'`、`amount>100` 因左是标识符不命中 → 不误杀合法过滤。
 
 ---
 
@@ -257,8 +260,8 @@ pytest tests/ -q           # 含完整评测套件 + 硬门槛断言
 py -m eval.mine_badcases   # 扫 logs/tool_calls.jsonl，dump 失败调用供沉淀坏 case
 ```
 
-- 语料在 `eval/cases/`，分三类：`schema_linking`（表检索 precision@K）、`security_deny`（该拒必拒、合法 SELECT 不误杀）、`routing_guard`（拒答/澄清/报错路由判定）。
-- 坏 case / 错误案例的**人读台账**与**已知盲点**见 `eval/badcases.md`（含：恒真注入 `OR '1'='1'` 当前在 SQL 层不拦，记作待办）。
+- 语料在 `eval/cases/`（41 例），分三类：`schema_linking`（表检索 precision@K）、`security_deny`（该拒必拒、合法 SELECT 不误杀）、`routing_guard`（拒答/澄清/报错路由判定）。`py -m eval.mine_badcases --sink-security` 可把被安全层拒绝的失败调用自动沉淀成 `security_deny` 用例（默认 dry-run）。
+- 坏 case / 错误案例的**人读台账**与**已知盲点**见 `eval/badcases.md`（恒真注入 `OR '1'='1'` 已在 SQL 校验层拦截，见安全设计第 11 条）。
 - 新增意图路由器 `core/security/intent_guard.py`（纯逻辑），负责把 NL 分类成 `query/chart/info/malicious/smalltalk/ambiguous/out_of_scope`，供评测断言其 deny/clarify 语义。
 
 ---
@@ -308,7 +311,7 @@ py -m bench.loadtest --endpoint query --query '本月销售额是多少' --dry-r
 | 4 | `get_relevant_schemas` 靠硬编码关键词 | ⏳ 待做：建议改为基于 Embedding 语义检索 |
 | 5 | 系统提示词写死示例表，与真实 Schema 脱节 | ✅ 已移除硬编码示例表，改为动态依赖 `get_relevant_schemas` |
 | 6 | `chart_tools` 与 `viz_tools` 重复实现 | ✅ 已删除 `viz_tools.py`，收敛为单一实现 |
-| 7 | 缺少测试 | ✅ 已具备分类回归评测（`eval/cases/`）+ `tests/` 174 项单测，`pytest tests/ -q` 为改动硬门槛 |
+| 7 | 缺少测试 | ✅ 已具备分类回归评测（`eval/cases/` 41 例）+ `tests/` 203 项单测，`pytest tests/ -q` 为改动硬门槛 |
 | 8 | 后续优化方向 | 🗺️ 带优先级（P0-P2）路线见 `openspec/tasks.md` 候选/backlog（Embedding 召回、意图路由器接线、LLM 提示词缓存、可观测、多 worker+Redis 等 10 项） |
 | 9 | SDD 规范维护 | 📐 SDD 治理文档与代码基线同步（`agreement.md` §2.5 DoD / §6 防漂移）；归档 change 时回填 CAP/TASK/TERM |
 

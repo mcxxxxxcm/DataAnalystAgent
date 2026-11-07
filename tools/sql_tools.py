@@ -13,6 +13,7 @@ SQL查询工具
 from langchain_core.tools import tool
 import json
 import time
+import re
 
 from core.database import db_pool, schema_manager
 from config.settings import get_settings
@@ -46,13 +47,40 @@ def _parse_affected_rows(tag: str) -> int:
     return 0
 
 
+def _has_returning(sql: str) -> bool:
+    """是否带 RETURNING 子句（写后回看写入行）。"""
+    return bool(re.search(r"\bRETURNING\b", str(sql or ""), re.IGNORECASE))
+
+
+def _build_write_result(write_type: str, payload, *, execution_time: float = 0.0) -> QueryResult:
+    """构建写操作结果：
+    - payload 为行列表（RETURNING）→ 回显 data/columns，result_id 留空（写结果不入 result_store）；
+    - payload 为受影响行数整数（无 RETURNING）→ 返回 {操作, 受影响行数}。
+    """
+    if not isinstance(payload, (list, tuple)):
+        affected = int(payload)
+        return QueryResult(
+            success=True, row_count=affected,
+            data=[{"操作": write_type, "受影响行数": affected}],
+            columns=["操作", "受影响行数"], execution_time=execution_time,
+        )
+    rows = [dict(r) for r in payload]
+    columns = list(rows[0].keys()) if rows else []
+    return QueryResult(
+        success=True, data=rows, row_count=len(rows), columns=columns,
+        execution_time=execution_time,
+    )
+
+
 @tool
 async def query_database(query: str) -> str:
     """执行 SQL。
     参数: query - SQL 语句。
     说明: 语句将先经安全校验（SELECT 默认放行；写操作需 enable_sql_write=True；
     禁止 DROP/TRUNCATE/ALTER/CREATE 及危险函数/注入）。SELECT 自动附加 LIMIT 防止全表扫描；
-    写操作（INSERT/UPDATE/DELETE）返回受影响行数，UPDATE/DELETE 必须带 WHERE 限定范围。
+    写操作（INSERT/UPDATE/DELETE）需 enable_sql_write=True，UPDATE/DELETE 必须带 WHERE 限定范围；
+    写后默认返回受影响行数；写语句建议加 RETURNING（如 INSERT ... RETURNING id）以回看写入后的真实数据；
+    批量插入用多行 VALUES (...), (...)，即单条 INSERT 一次插入多行。
     """
     start_time = time.time()
     timeout = get_settings().sql_timeout
@@ -70,18 +98,21 @@ async def query_database(query: str) -> str:
         if write_type:
             # 写操作：执行 + 写后失效 schema 缓存（刷新 stale 的 row_count/sample_data）；
             # 结果不入 result_store（写结果不适合作图表数据源，避免越界）。
-            tag = await run_sql_durable(
-                db_pool.execute, key=_sql_key, max_retries=_cfg_retries,
-                base_delay=_cfg_delay, args=(sql,), kwargs={"timeout": timeout},
-            )
-            affected = _parse_affected_rows(tag)
             schema_manager.clear_cache()
-            result = QueryResult(
-                success=True, row_count=affected,
-                data=[{"操作": write_type, "受影响行数": affected}],
-                columns=["操作", "受影响行数"],
-                execution_time=time.time() - start_time,
-            )
+            if _has_returning(sql):
+                # RETURNING：用 fetch 抓回写入后的真实行回显给用户（不存引用缓存）
+                rows = await run_sql_durable(
+                    db_pool.fetch, key=_sql_key, max_retries=_cfg_retries,
+                    base_delay=_cfg_delay, args=(sql,), kwargs={"timeout": timeout},
+                )
+                result = _build_write_result(write_type, rows, execution_time=time.time() - start_time)
+            else:
+                tag = await run_sql_durable(
+                    db_pool.execute, key=_sql_key, max_retries=_cfg_retries,
+                    base_delay=_cfg_delay, args=(sql,), kwargs={"timeout": timeout},
+                )
+                affected = _parse_affected_rows(tag)
+                result = _build_write_result(write_type, affected, execution_time=time.time() - start_time)
             return dump_result(result)
 
         rows = await run_sql_durable(

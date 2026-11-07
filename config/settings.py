@@ -114,6 +114,14 @@ class Settings(BaseSettings):
         default=None,
         description="可选的用户自定义同义词映射，逗号分隔的 '词=表A,表B' 段，如 '业绩=sales,购买=orders'"
     )
+    schema_embed_enabled: bool = Field(
+        default=False,
+        description="是否在 get_relevant_schemas 启用语义重排（关键词仍打底，语义仅作增量校准）。默认关零行为变化"
+    )
+    schema_embed_fn: Optional[str] = Field(
+        default=None,
+        description="可选的 embedder 点分导入路径：工厂形如 f() -> callable(query, table_text) -> float 相似度[0,1]。空=不启用"
+    )
 
     # === 人工审核 / 审计 ===
     audit_log_enabled: bool = Field(
