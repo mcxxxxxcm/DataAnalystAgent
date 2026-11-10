@@ -22,6 +22,9 @@
 | 短期记忆 checkpointer | `middleware/config.py`（`get_async_checkpointer`/`setup_checkpointer`） | 读由 LangGraph 代理 | 优先 AsyncPostgresSaver，失败回退 InMemory |
 | 长期记忆 Store | `middleware/config.py`（`get_store`/`setup_store`） | `memory_tools` 读写 | 静默降级，记忆非强依赖 |
 | 本地日志/审计 | `middleware/local_logger` | `query_records`/`get_recent_records` | 追加写 |
+| 查询结果/图表 spec 缓存（后端可切） | `utils/cache_backend.py`（`get_cache_backend`，单一写者；memory 内部持 `BoundedTTLCache` / redis 经命名空间 `rs:`/`chart:`） | `result_store.get_result` / `chart_tools.get_cached_spec`（只读，非摧毁） | 容量/TTL 有界由后端保证；redis 不可达回退 memory（见 `config/settings.py` `cache_backend`/`redis_url`） |
+| 可观测指标注册表 | `observability/metrics.py`（`record_tool`/`record_request`/`refresh_pool` 写，`render_metrics` 读） | `render_metrics` | `observability_enabled` 门控；关时 `record_*` 为 no-op；Prometheus 文本由 `render_metrics` 采样快照，非摧毁读 |
+| 限流桶（RBAC） | `core/security/rate_limit.py`（`SlidingWindowLimiter.allow` 写/读） | `allow`（同时是判定与写） | per-key 有界（key 上限防无界）+ 惰性清过期；`rbac_rate_limit` 默认关 no-op |
 
 ## 新增状态的约定
 

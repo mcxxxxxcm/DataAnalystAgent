@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+### backlog 四强补齐（提示词缓存 · Redis 共享缓存 · 可观测 /metrics · RBAC+限流）
+
+**提示词缓存省计费（B005，CAP-AGENT-007）**
+- `agent/prompt_cache.py` 新增位 `_MARKER` / `split_cached_prompt`（按 marker 切固定段+动态段）/ `build_cache_kwargs`（解析显式 cache 头 JSON，空/非法返回 None）。
+- `agent/prompts.py` `build_system_prompt` 在 `prompt_cache_enabled=True` 时于固定段尾插 marker、动态 `db_info`/`custom_instructions` 置尾部，命中 provider 自动磁盘缓存省重复计费；**off 时输出逐字节不变**。
+- `agent/analyst_agent.py` 同步/异步 `ChatOpenAI` 经 `model_kwargs={"extra_body": ...}` 可选注入显式 cache 头（仅 `prompt_cache_header_json` 配置时）。配置 `prompt_cache_enabled`（默认关）/ `prompt_cache_header_json`（默认空）。测试 `tests/test_prompt_cache.py`（7 例）。
+
+**多 worker Redis 共享缓存（B006，CAP-UTIL-008）**
+- 新增 `utils/cache_backend.py`：`CacheBackend` Protocol（set/get/peek/pop/clear/size/keys，与 `BoundedTTLCache` 同构）、`MemoryCacheBackend`（内部持 `BoundedTTLCache`，单一写者不变）、`RedisCacheBackend`（`redis.asyncio` + 同步面 `run_coroutine_threadsafe` 桥到后台 loop；value JSON 序列化 datetime/Decimal → `SETEX`；ZSET 记写入时间戳做容量淘汰；key 命名空间前缀）、`get_cache_backend()`（redis 不可达/import 失败 → 日志告警 + 回退 memory）。
+- `utils/result_store.py`（`rs:`）/ `tools/chart_tools.py`（`chart:`）底层切换后端，**对外函数签名不变**。配置 `cache_backend="memory"` / `redis_url=""`（**redis_url 重新引入**，见 B006 回归理由）。测试 `tests/test_cache_backend.py`。若未装 Redis，本机不回退到 memory 路径验证不崩。
+
+**可观测 /metrics（B007，CAP-OBS-001 / CAP-API-008）**
+- 新增 `observability/`：纯 stdlib 实现 Prometheus 文本指标（`record_tool` / `record_request` / `refresh_pool` / `render_metrics`），`setup_observability()` 读 `observability_enabled` 门控，关时全部 no-op。
+- `middleware/logging_wrapper.py` 工具成功/失败分支埋点 `record_tool`；`api/routes.py` 加 `GET /metrics`（`enabled` 才暴露，否则 404）并在 `/api/stats` 刷新 pool/result_cache gauge；`api/main.py` 加请求计数/延迟中间件。配置 `observability_enabled=False`。测试 `tests/test_observability.py`。
+- **偏离说明**：recipe 段3 原计划引 `prometheus-client`；实际为**零新依赖**——用纯标准库拼 Prometheus 文本格式（`requirements.txt` 无新增），对齐「少设置/零依赖」偏好，功能等价。
+
+**表/列级 RBAC + 速率限制（B010，CAP-SEC-012 / CAP-SEC-013）**
+- 新增 `core/security/rbac.py`：`RolePolicy`（tables/columns/tools_scope）、`Policy.from_json`（解析 `rbac_policy_json` 字面量或 `@path`）、`resolve_role`；`extract_columns`（sqlparse 提取列，解析失败 fail-closed）、`build_role_guards`（组合 checker）。
+- 新增 `core/security/rate_limit.py`：`SlidingWindowLimiter`（per-key `deque[float]`、key 上限防无界、惰性清过期）+ `parse_rate_limit`（`"10/min"`）。
+- `tools/boundaries.py` `guard_query_sql` 加可选 `column_checker=None`（缺省 None 与现状完全一致）；`tools/sql_tools.py` RBAC 开启时注入「现 `is_allowed_table` → 角色表/列白名单」**additive** checker；`api/main.py` auth 后加限流中间件、`api/routes.py` `/query` 解析 role 注入工具 scope。配置 `enable_rbac=False` / `rbac_policy_json=""` / `rbac_rate_limit=""`。测试 `tests/test_rbac.py` + `tests/test_rate_limit.py`。
+- **偏离说明**：本机未装 `redis[asyncio]`，RBAC/限流走默认关路径验证；集成（真实 Redis / 越权表 429）留待环境具备后 hand-run，已在 code 侧保证默认关零行为变化。
+
+- `py -m pytest tests/ -q` **246 项全绿**（新增 test_prompt_cache / test_cache_backend / test_observability / test_rbac / test_rate_limit；存量 test_single_writer / test_tool_boundaries 证明默认关不回归）。change 归档 `openspec/archived/backlog-quad-cache-rbac-obs/`。
+
 ### 安全/检索/写操作/评测 四强化（注入加固 · 语义重排 · 写回看 · 语料扩集）
 
 - **注入检测加固**（CAP-SEC-011）：`core/security/sql_validator.py` 在注入检测层补「恒真/恒假布尔注入」——仅当比较符**两侧都是字面量**（`数字=数字`、`'串'='串'`）时拒绝（`WHERE 1=1`、`OR 1=1`、`OR 'a'='b'`）；`region='Jingdong'`、`amount>100` 左是标识符不命中 → **不误杀**（`accept03/04` 控制组锁死）。收掉 `eval/badcases.md` 的恒真注入待办。

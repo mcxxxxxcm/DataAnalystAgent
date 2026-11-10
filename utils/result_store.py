@@ -8,12 +8,13 @@
 import uuid
 from typing import Any, Dict, List, Optional
 
-from utils.bounded_cache import BoundedTTLCache as _BoundedTTLCache
+from utils.cache_backend import CacheBackend, get_cache_backend
 
 # 有界缓存，带过期时间与容量上限，防止无界增长。
-# 单一写者：状态由 `_cache`（BoundedTTLCache）独占写路径；本模块仅作薄委托，保持对外函数签名不变。
-# TTL/容量单一来源在 `_BoundedTTLCache` 默认值（10 分钟过期 / 50 条），不在此另设配置（少设置审计）。
-_cache: _BoundedTTLCache[str, Dict[str, Any]] = _BoundedTTLCache()
+# 单一写者：状态由 `_cache`（CacheBackend）独占写路径；本模块仅作薄委托，保持对外函数签名不变。
+# TTL/容量单一来源在后端默认值（10 分钟过期 / 50 条），不在此另设配置（少设置审计）。
+# 后端默认为进程内 memory；设 cache_backend=redis 后跨 worker 共享（backlog B006）。命名空间 rs: 防跨 owner 串写。
+_cache: CacheBackend[str, Dict[str, Any]] = get_cache_backend(prefix="rs:")
 
 
 def set_result(columns: List[str], rows: List[Dict[str, Any]]) -> str:

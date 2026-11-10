@@ -1,6 +1,8 @@
 """Prompt 模板"""
 from typing import List, Dict
 
+from .prompt_cache import _MARKER as _CACHE_MARKER
+
 # 系统提示词
 SYSTEM_PROMPT = """你是数据分析助手。
 
@@ -87,26 +89,36 @@ FEW_SHOT_EXAMPLES: List[Dict[str, str]] = [
 
 def build_system_prompt(
     db_info: str = "",
-    custom_instructions: str = ""
+    custom_instructions: str = "",
+    enable_cache: bool | None = None
 ) -> str:
     """
     构建完整的系统提示词
-    
+
     参数：
         db_info: 数据库信息
         custom_instructions: 自定义指令
-        
+        enable_cache: 提示词缓存布局开关（默认读 config.prompt_cache_enabled）——
+                      开启时在固定段尾插 marker、动态段置尾部，命中 provider 自动磁盘缓存；
+                      关闭（默认）时输出与既有提示词逐字节一致。
+
     返回：
         完整的系统提示词
     """
+    use_cache = enable_cache if enable_cache is not None else _prompt_cache_enabled()
     prompt = SYSTEM_PROMPT
-
+    if use_cache:
+        prompt += _CACHE_MARKER
     if db_info:
         prompt += f"\n\n## 数据库信息\n\n{db_info}"
     if custom_instructions:
         prompt += f"\n\n## 特殊指令\n\n{custom_instructions}"
-
     return prompt
+
+
+def _prompt_cache_enabled() -> bool:
+    from config.settings import get_settings
+    return bool(get_settings().prompt_cache_enabled)
 
 
 def format_few_shot_examples() -> str:

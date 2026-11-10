@@ -45,6 +45,8 @@
 | TASK-SEC-009 | [done] | 确定性意图路由器 | CAP-SEC-009 `core/security/intent_guard.py` | NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，deny/clarify 语义；`ENABLE_INTENT_ROUTER` 默认关、仅评测直调未接线 |
 | TASK-SEC-010 | [done] | 请求准入门 + 注意力经济 | CAP-SEC-010 `core/security/admission.py` + `api/routes.py` | 来源×意图准入判定（admit/deny/clarify/reply）；`maybe_gate` 接线 `/query`（`enable_admission_gate` 默认关、只短路 deny/reply）；allowlist 校验 `X-Admission-Key`；寒暄/INFO 固定直答 |
 | TASK-SEC-011 | [done] | 注入检测加固（恒真假布尔） | CAP-SEC-011 `core/security/sql_validator.py` | 两侧均字面量比较（数字=数字/串=串）拒绝；`列='值'`/`列>数字` 不误杀；收 `eval/badcases.md` 待办 |
+| TASK-SEC-012 | [done] | 表/列级 RBAC 最小授权 | CAP-SEC-012 `core/security/rbac.py` + `tools/boundaries.py` | 角色解析（`rbac_policy_json`）；系统表→角色表/列 additive checker；越权表/列拒绝、系统表仍拒、列解析失败 fail-closed；`enable_rbac` 默认关零变化 |
+| TASK-SEC-013 | [done] | 滑动窗口限流/配额 | CAP-SEC-013 `core/security/rate_limit.py` + `api/main.py` | `parse_rate_limit` 解析 `"N/min"`；限下放行/超限 429/窗口滑动/per-key 隔离/key 上限；`rbac_rate_limit` 默认关 no-op |
 
 ## 4. 工具层与权限边界（TASK-TOOL-*）
 
@@ -70,6 +72,7 @@
 | TASK-AGENT-004 | [done] | 长上下文自动摘要 | CAP-AGENT-004 | token 预算触发（SummarizationMiddleware） |
 | TASK-AGENT-005 | [done] | 瞬时错误自动重试 | CAP-AGENT-005 `middleware/config.py` | ToolRetryMiddleware + `sql_retry_on_transient` |
 | TASK-AGENT-006 | [done] | 错误结构化格式化 | CAP-AGENT-006 | 工具异常封装为 ToolError，不裸 str(e) 回喂 |
+| TASK-AGENT-007 | [done] | 提示词缓存省计费 | CAP-AGENT-007 `agent/prompt_cache.py` + `prompts.py` + `analyst_agent.py` | `prompt_cache_enabled` 时固定段尾 marker + 动态段置尾；off 逐字节不变；`prompt_cache_header_json` 注入 extra_body |
 | TASK-MID-001 | [done] | 本地日志中间件 | CAP-MID-001 | logging_middleware |
 | TASK-MID-002 | [done] | HITL 中断配置 | CAP-MID-002 | query_database 需审核；只读工具自动放行 |
 | TASK-MID-003 | [done] | Checkpointer 高可用 | CAP-MID-003 | AsyncPostgresSaver 优先，失败回退 InMemory |
@@ -86,6 +89,7 @@
 | TASK-API-005 | [done] | 查询结果提取 | CAP-API-005 | /query 返回最后成功结果的 columns/data/markdown |
 | TASK-API-006 | [done] | 可观测端点 | CAP-API-006 `api/routes.py` | `GET /api/stats`：连接池/线程池/结果缓存状态 |
 | TASK-API-007 | [done] | checkpoint 维护端点 | CAP-API-007 `api/routes.py` | /api/checkpoints/stats、cleanup（dry_run 默认开）、cleanup-orphaned |
+| TASK-API-008 | [done] | 可观测 /metrics | CAP-API-008 + CAP-OBS-001 `api/routes.py` + `api/main.py` + `observability/` | `observability_enabled` 时 `GET /api/metrics` 返回 Prometheus 文本（工具/请求/连接池 gauge），否则 404；请求计数/延迟中间件门控 |
 
 ## 7. Utils（TASK-UTIL-*）
 
@@ -98,6 +102,7 @@
 | TASK-UTIL-005 | [done] | 并发压测工具 | CAP-UTIL-005 `bench/loadtest.py` | health/ping/query、thread-mode、--dry-run、Bearer 鉴权 |
 | TASK-UTIL-006 | [done] | 单一写者缓存原语 | CAP-UTIL-006 `utils/bounded_cache.py` | `BoundedTTLCache`（写/淘汰集中于一个类、读非摧毁式）；Chart 读路径去 `.pop()`；`docs/state-owners.md` 记录各状态唯一写者；消除 result_store/图表 spec 重复实现 |
 | TASK-UTIL-007 | [done] | 持久化效果队列 + 指数退避 | CAP-UTIL-007 `utils/effect_queue.py` + `tools/sql_tools.py` | `AsyncEffectQueue`（key 幂等入队、指数退避、可选 JSONL 持久化、pending/settled/failed）；`run_sql_durable` 接通 SQL 瞬时错误退避层（`effect_queue_max_retries` 默认 2） |
+| TASK-UTIL-008 | [done] | 缓存后端抽象 memory/Redis | CAP-UTIL-008 `utils/cache_backend.py` | `CacheBackend` Protocol 七方法与 `BoundedTTLCache` 同构；Redis 后端（`run_coroutine_threadsafe` 桥、JSON datetime/Decimal、ZSET 容量淘汰、命名空间前缀）；redis 不可达回退 memory；result_store/chart 签名不变 |
 
 ## 8. 评测与测试（TASK-EVAL-*）
 
@@ -105,7 +110,7 @@
 |----|------|------|--------------------|----------|
 | TASK-EVAL-001 | [done] | Text2SQL 回归评测 | CAP-EVAL-001 `eval/run_eval.py` | 多场景聚合 harness，跑分类语料 |
 | TASK-EVAL-002 | [done] | 分类语料基线 | CAP-EVAL-002 `eval/cases/` | schema_linking(11)/security_deny(13)/routing_guard(17) 三文件 41 例；`mine_badcases.py` 扫日志 dump + `--sink-security` 自动沉淀坏 case |
-| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建/准入门/单一写者/效果队列/注入加固/写 RETURNING/语义重排/坏case沉淀（203 项通过） |
+| TASK-EVAL-003 | [done] | 单元测试覆盖 | CAP-EVAL-003 `tests/` | 安全校验/工具边界/载荷裁剪/返回结构/SQL 错误/图表 spec/写操作/意图路由/评测回归/并发/模型视图重建/准入门/单一写者/效果队列/注入加固/写 RETURNING/语义重排/坏case沉淀/提示词缓存/缓存后端/可观测/RBAC/限流（246 项通过） |
 | TASK-EVAL-004 | [done] | 测试硬门槛 | CAP-EVAL-004 | `pytest tests/ -q` 全绿为改动门槛 |
 | TASK-EVAL-005 | [done] | 坏 case 自动沉淀 | CAP-EVAL-005 `eval/mine_badcases.py` | `--sink-security [--apply]` 把被安全层拒绝的 query_database 失败按归一 SQL 去重写进 security_deny.json（默认 dry-run、幂等） |
 
@@ -125,42 +130,7 @@
 
 ### 摘要
 
-| ID | 优先级 | 候选任务 | 核心动机 | 落点 |
-|----|--------|----------|----------|------|
-| B005 | P0 | LLM 提示词缓存省计费 | 相同系统提示词每次全量计费 | `middleware/` / LLM 侧缓存 |
-| B006 | P2 | 多 worker + Redis 共享缓存 | 单 worker 内存缓存跨进程 miss（result_store/chart） | `utils/` / `config/settings.py` |
-| B007 | P1 | 可观测: OpenTelemetry metrics/追踪 | 缺统一指标与链路追踪，压测定界难 | 新增 `observability/` + `GET /metrics` |
-| B010 | P2 | 表/列级 RBAC + 速率限制/配额 | 仅有登录鉴权，无最小授权/防滥用 | `api/` + `tools/boundaries.py` |
-
-### 详情
-
-**TASK-BACKLOG-005 · LLM 提示词缓存省计费（P0）**
-- 动机：系统提示词（长、多段）每请求/每轮全量计费，可缓存命中省钱。
-- 落点：`middleware/`（对系统提示词/固定段启用 provider prompt 缓存，如 Anthropic cache_control），或 LLM 侧缓存。
-- 成本：低（适配供应商缓存机制，需校验基准提示词稳定）。
-- 收益：相同提示词重复调用计费下降显著。
-- 关联：CAP-CONF-004 / CAP-AGENT-002。
-
-**TASK-BACKLOG-006 · 多 worker + Redis 共享缓存（P2）**
-- 动机：单 worker 默认安全，但扩 worker 后 result_store/chart 缓存为每进程内存，`/query` 的 result_id 与 `/chart/option` 取图跨 worker 会 404。
-- 落点：`utils/result_store.py` / `tools/chart_tools.py` 缓存后端改持久化（需**重新引入** Redis 类配置——`redis_url` 配置已在少设置审计中删除，见 `config/settings.py`）；checkpointer/store 已走 PG 天然可跨。
-- 成本：高（引入 Redis 依赖 + 缓存语义改造 + 并发一致性测试）。
-- 收益：横向扩并发、多 worker 可用。
-- 关联：CAP-UTIL-001 / CAP-UTIL-002 / CAP-API-006。
-
-**TASK-BACKLOG-007 · 可观测: OpenTelemetry metrics/追踪（P1）**
-- 动机：缺统一指标与分布式追踪，压测/生产定位慢 LLM/慢查询缺少链路证据。
-- 落点：新增 `observability/`（OTel traces + `/metrics` 暴露连接池/工具耗时/错误率，承接 `/api/stats`）。
-- 成本：中（OTel 集成 + 埋点 + 看板）。
-- 收益：性能瓶颈与错误可视化，支撑压测闭环与生产排障。
-- 关联：CAP-API-006 / CAP-MID-001。
-
-**TASK-BACKLOG-010 · 表/列级 RBAC + 速率限制/配额（P2）**
-- 动机：现有仅 `API_AUTH_TOKEN` 登录鉴权 + 工具级 scope，无最小表/列授权与滥用防护。
-- 落点：`tools/boundaries.py` 表白名单按角色；`api/` 加速率限制/配额（配合鉴权）。
-- 成本：高（认证扩为多用户、策略存储、限流中间件）。
-- 收益：多租户/多角色可控、防爬与配额治理，贴近生产安全基线。
-- 关联：CAP-TOOL-008 / CAP-API-002。
+> 注：本 backlog 的 B005/B006/B007/B010 四项已在一次 change 中全部落地，详见「已落地」。
 
 ### 已落地（backlog 移出项）
 
@@ -175,7 +145,11 @@
 - 写操作 RETURNING/批量（原 TASK-BACKLOG-008，[done]）：写分派支持 `RETURNING` 回看写入行 + VALUES 多行批量（CAP-SEC-008 增强；多语句事务有意不做）；change 见 `openspec/archived/write-operations-enhanced/`。
 - Embedding schema 语义重排（原 TASK-BACKLOG-001，[done]）：`rerank_with_embeddings` 关键词分+embed 相似度加权，`schema_embed_enabled` 默认关零变化（CAP-DB-003 增强）；change 见 `openspec/archived/embedding-schema-retrieval/`。
 - 评测语料扩集（原 TASK-BACKLOG-003，[done]）：`eval/cases/` 扩至 41 例（CAP-EVAL-002）；change 见 `openspec/archived/eval-corpus-expansion/`。
+- LLM 提示词缓存省计费（原 TASK-BACKLOG-005，[done]）：`agent/prompt_cache.py` + `prompts.py`，固定前置+动态置尾命中 provider 自动磁盘缓存（CAP-AGENT-007）；change 见 `openspec/archived/backlog-quad-cache-rbac-obs/`。
+- 多 worker + Redis 共享缓存（原 TASK-BACKLOG-006，[done]）：`utils/cache_backend.py` 后端抽象 memory/Redis（CAP-UTIL-008）；change 见 `openspec/archived/backlog-quad-cache-rbac-obs/`。
+- 可观测 /metrics（原 TASK-BACKLOG-007，[done]）：`observability/` 纯 stdlib Prometheus 文本 + `GET /api/metrics`（CAP-OBS-001 / CAP-API-008）；change 见 `openspec/archived/backlog-quad-cache-rbac-obs/`。
+- 表/列级 RBAC + 速率限制（原 TASK-BACKLOG-010，[done]）：`core/security/rbac.py` + `rate_limit.py`（CAP-SEC-012/013）；change 见 `openspec/archived/backlog-quad-cache-rbac-obs/`。
 
 ---
 
-*版本：v0.4（对齐本轮四强化：注入加固/语义重排/写回看/语料扩集；backlog 剩 B005/B006/B007/B010） | 更新：2026-11-07*
+*版本：v0.5（对齐 backlog 四强补齐：提示词缓存/Redis 共享缓存/可观测 metrics/RBAC+限流；backlog B005/B006/B007/B010 均 `[done]`） | 更新：2026-11-09*

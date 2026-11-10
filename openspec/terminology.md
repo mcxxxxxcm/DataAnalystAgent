@@ -27,6 +27,11 @@
 | TERM-020 | 效果队列（effect queue） | 可重试副作用按 key 幂等入队、指数退避重试、可选持久化、失败健康计数 | `utils/effect_queue.py`；`effect_queue_max_retries>0` 时接通 SQL 瞬时错误退避层 |
 | TERM-021 | 恒真/恒假布尔注入 | 比较符**两侧都是字面量**（`1=1`、`'a'='a'`）的自比表达式；校验层据此拒绝；`列='值'` 因左是标识符不命中 → 不误杀 | `core/security/sql_validator.py` `TAUTOLOGY_PATTERNS`（CAP-SEC-011） |
 | TERM-022 | 语义重排（embedding rerank） | 用「查询 × 表合成文本」相似度与关键词分加权重排 schema 召回；可选、默认关、失败回退关键词 | `core/database/schema_linking.py` `rerank_with_embeddings`；`schema_embed_enabled`（CAP-DB-003 增强） |
+| TERM-023 | 提示词缓存省计费 | `prompt_cache_enabled=True` 时固定系统段尾插 marker、动态段置尾，命中 provider 自动磁盘缓存省重复计费 token；可选显式 cache 头注入 | `agent/prompt_cache.py` / `agent/prompts.py`；`prompt_cache_header_json`（CAP-AGENT-007） |
+| TERM-024 | 缓存后端抽象（cache backend） | result/chart 缓存底层可切 memory（`BoundedTTLCache`）/ Redis（`redis.asyncio`），跨 worker 共享；redis 不可达静默回退 memory | `utils/cache_backend.py`；`cache_backend`/`redis_url`（CAP-UTIL-008） |
+| TERM-025 | 表/列级 RBAC | 按来源 key → 角色解析，注入「系统表白名单 → 角色表/列白名单」additive checker；列越权拒绝、列解析失败 fail-closed | `core/security/rbac.py`；`enable_rbac`/`rbac_policy_json`（CAP-SEC-012） |
+| TERM-026 | 滑动窗口限流 | per-key n 秒内最多 N 次请求的滑动窗口计数，超限 429；key 上限防无界、惰性清过期 | `core/security/rate_limit.py`；`rbac_rate_limit`（CAP-SEC-013） |
+| TERM-027 | Prometheus 文本指标 | 纯 stdlib 生成的 Prometheus exposition 文本（`GET /api/metrics`），覆盖工具耗时/请求计数延迟/连接池 gauge | `observability/metrics.py`；`observability_enabled`（CAP-OBS-001 / CAP-API-008） |
 
 ---
 

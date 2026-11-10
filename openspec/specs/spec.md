@@ -42,6 +42,8 @@
 | CAP-SEC-009 | 确定性意图路由器 `intent_guard`：NL 分类 query/chart/info/malicious/smalltalk/ambiguous/out_of_scope，带 deny/clarify 语义；`maybe_short_circuit` 已接线 `/query`（受 `ENABLE_INTENT_ROUTER` 门控，默认关、只短路 deny 不短路 clarify） | ✅ `core/security/intent_guard.py` / `api/routes.py` |
 | CAP-SEC-010 | 确定性请求准入门 `admission_gate`：来源×意图合成准入判定（admit/deny/clarify/reply），迁移 dsh 的 Policy/gate/admission-table + 注意力经济；`maybe_gate` 接线 `/query`（`enable_admission_gate` 门控，默认关、只短路 deny/reply 不短路 clarify）；allowlist 模式校验 `X-Admission-Key`；寒暄/结构询问固定直答不烧 LLM | ✅ `core/security/admission.py` / `api/routes.py` / `config/settings.py` |
 | CAP-SEC-011 | 注入检测加固：拦截「恒真/恒假布尔注入」——仅当比较符**两侧都是字面量**（`数字=数字`、`'串'='串'`）才拒绝；`列='值'`/`列>数字` 左是标识符不命中 → 不误杀；收掉恒真 `OR '1'='1'` 待办 | ✅ `core/security/sql_validator.py`（`TAUTOLOGY_PATTERNS`） |
+| CAP-SEC-012 | 表/列级 RBAC 最小授权：按来源 key → 角色（`RolePolicy`/`Policy.from_json`），注入「系统表白名单 → 角色表/列白名单」additive 组合 checker；列越权拒绝、列提取失败 fail-closed；未匹配来源可回退 `default_role` 或拒绝 | ✅ `core/security/rbac.py` + `tools/boundaries.py` + `tools/sql_tools.py`（`enable_rbac` 默认关零变化） |
+| CAP-SEC-013 | 滑动窗口限流/配额：per-key `deque[float]` 时间戳、key 上限防无界、惰性清过期；`parse_rate_limit` 解析 `"N/s|m|h|d"`；`RBAC_RATE_LIMIT` 配置、auth 后中间件 429 | ✅ `core/security/rate_limit.py` + `api/main.py`（`enable_rbac` + `rbac_rate_limit`，默认关 no-op） |
 
 ## 4. Tools（tools/）
 
@@ -67,6 +69,7 @@
 | CAP-AGENT-004 | 长上下文自动摘要（官方 SummarizationMiddleware，token 预算触发） | ✅ |
 | CAP-AGENT-005 | 瞬时/可恢复 SQL 错误自动重试（ToolRetryMiddleware，`sql_retry_on_transient`） | ✅ `middleware/config.py` |
 | CAP-AGENT-006 | 错误格式化：工具异常统一封装为结构化 ToolError，避免裸 str(e) 回喂 | ✅ |
+| CAP-AGENT-007 | 提示词缓存省计费：`prompt_cache_enabled=True` 时固定系统段尾插 marker、动态 `db_info`/`custom_instructions` 置尾（固定前置命中 provider 自动磁盘缓存）；`prompt_cache_header_json` 配置时经 `model_kwargs.extra_body` 注入显式 cache 头；off 时输出逐字节不变 | ✅ `agent/prompt_cache.py` + `agent/prompts.py` + `agent/analyst_agent.py` |
 
 ## 6. Middleware
 
@@ -88,6 +91,7 @@
 | CAP-API-005 | `/api/query` 返回提取最后一个成功查询的结果（columns / data / markdown 表格） | ✅ |
 | CAP-API-006 | 可观测只读端点 `GET /api/stats`：连接池（size/min/max/idle）、线程池配置、结果缓存条目数（供压测闭环调参） | ✅ `api/routes.py` |
 | CAP-API-007 | checkpoint 维护端点：`/api/checkpoints/stats`、`/api/checkpoints/cleanup`（dry_run 默认开）、`/api/checkpoints/cleanup-orphaned` | ✅ `api/routes.py` |
+| CAP-API-008 | 可观测 `/api/metrics`：`observability_enabled=True` 时暴露 Prometheus 文本（工具耗时/请求计数延迟/连接池+result_cache gauge），否则 404；请求计数/延迟中间件门控 | ✅ `api/routes.py` + `api/main.py` + `observability/` |
 
 ## 8. Utils
 
@@ -100,6 +104,7 @@
 | CAP-UTIL-003 | 导出管理 export_manager（CSV/XLSX，`export_max_rows` 采样上限） | ✅ |
 | CAP-UTIL-004 | 图表代码沙箱 `execute_chart_code`（安全 globals，非危险） + checkpoint 清理 | ✅ `chart_sandbox.py` / `checkpoint_cleanup.py` |
 | CAP-UTIL-005 | 并发压测工具 `bench.loadtest`：health/ping/query 端点、thread-mode（unique/reuse/per-worker）、`--dry-run`、Bearer 鉴权 | ✅ `bench/loadtest.py` |
+| CAP-UTIL-008 | 缓存后端抽象：`CacheBackend` Protocol（set/get/peek/pop/clear/size/keys，与 `BoundedTTLCache` 同构）、`MemoryCacheBackend`（内部持 `BoundedTTLCache`，单一写者）、`RedisCacheBackend`（`redis.asyncio` + 同步面 `run_coroutine_threadsafe` 桥、JSON 序列化 datetime/Decimal、ZSET 容量淘汰、key 命名空间）、`get_cache_backend`（redis 不可达回退 memory）；result_store（`rs:`）/ chart_tools（`chart:`）签名不变 | ✅ `utils/cache_backend.py` + `utils/result_store.py` + `tools/chart_tools.py` |
 
 ## 9. Eval & Tests
 
@@ -118,6 +123,12 @@
 | CAP-RECON-001 | 确定性重建：`reconstruct_model_messages(events)` 把会话事件编排成 LangChain 消息序列；`session_events_from_tool_records` 把工具日志转事件；纯函数、无 DB/LLM | ✅ `core/recon.py` |
 | CAP-RECON-002 | 忠实捕获：工具日志记录真实 `thread_id`（来自 `request.runtime.config`，回退 `'current'`）+ `model_view`（与送入 LLM 同 condense 阈值）；`recon_model_view_enabled` 门控（默认开） | ✅ `middleware/logging_wrapper.py` / `config/settings.py` |
 
+## 11. Observability（observability/）
+
+| ID | 需求 | 现状 |
+|----|------|------|
+| CAP-OBS-001 | 纯 stdlib Prometheus 文本指标：`record_tool`/`record_request`/`refresh_pool` + `render_metrics`；`setup_observability`/`enabled` 读 `observability_enabled`，关时全 no-op | ✅ `observability/metrics.py` + `observability/__init__.py` + `middleware/logging_wrapper.py` |
+
 ---
 
 ## Specs 状态表
@@ -126,11 +137,11 @@
 |--------|------|-------------------|
 | Configuration | implemented | 少设置审计：删除 4 个无消费方配置（`db_max_overflow`/`cache_ttl`/`redis_url`/`agent_verbose`），运行时常量以模块常量为准 |
 | core/database | implemented | schema linking 关键词打分打底，可选 Embedding 语义重排已落地（CAP-DB-003，`schema_embed_enabled` 默认关 + 失败回退关键词） |
-| core/security | implemented | 写操作已落地（CAP-SEC-008 + RETURNING 回看）；意图路由器已接线（CAP-SEC-009）；请求准入门 `admission_gate` 已落地（CAP-SEC-010）；注入检测加固恒真假字符文本拦（CAP-SEC-011） |
-| Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008） |
-| Agent | implemented | 同步/异步两版能力对齐：载荷裁剪（condense_tool_results）+ 长上下文摘要 + 瞬时重试均具备 |
+| core/security | implemented | 写操作已落地（CAP-SEC-008 + RETURNING 回看）；意图路由器已接线（CAP-SEC-009）；请求准入门 `admission_gate` 已落地（CAP-SEC-010）；注入检测加固恒真假字符文本拦（CAP-SEC-011）；表/列 RBAC + 滑动窗口限流已落地（CAP-SEC-012/013，默认关零变化） |
+| Tools | implemented | `create_custom_chart` 默认禁用（安全设计）；写操作由 `query_database` 分派（CAP-SEC-008）；缓存后端可切 Redis（CAP-UTIL-008） |
+| Agent | implemented | 同步/异步两版能力对齐：载荷裁剪（condense_tool_results）+ 长上下文摘要 + 瞬时重试均具备；提示词缓存省计费（CAP-AGENT-007，默认关） |
 | Middleware | implemented | — |
-| API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）与 checkpoint 维护端点（CAP-API-007） |
-| Utils | implemented | 新增 `bench.loadtest`（CAP-UTIL-005）；单一写者缓存原语 `BoundedTTLCache`（CAP-UTIL-006）；持久化效果队列（CAP-UTIL-007，SQL 瞬时后退避层） |
-| Eval & Tests | implemented | 语料扩集 41 例（schema_linking 11 / security_deny 13 / routing_guard 17）；含写操作/意图路由/并发/注入加固/语义重排/坏case沉淀回归测试；`mine_badcases --sink-security` 自动沉淀坏 case |
+| API + Frontend | implemented | 新增 `/api/stats`（CAP-API-006）、checkpoint 维护端点（CAP-API-007）、`/api/metrics`（CAP-API-008，`observability_enabled` 默认关，`observability/` 纯 stdlib 采集 CAP-OBS-001） |
+| Utils | implemented | 新增 `bench.loadtest`（CAP-UTIL-005）；单一写者缓存原语 `BoundedTTLCache`（CAP-UTIL-006）；持久化效果队列（CAP-UTIL-007，SQL 瞬时后退避层）；缓存后端抽象 memory/Redis（CAP-UTIL-008） |
+| Eval & Tests | implemented | 语料扩集 41 例（schema_linking 11 / security_deny 13 / routing_guard 17）；含写操作/意图路由/并发/注入加固/语义重排/坏case沉淀/提示词缓存/缓存后端/可观测/RBAC/限流回归测试；`mine_badcases --sink-security` 自动沉淀坏 case |
 | recon（可观测） | implemented | 模型视图可重建不变量（CAP-RECON-001/002，change：recon-model-view-invariant） |

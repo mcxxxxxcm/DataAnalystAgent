@@ -44,6 +44,18 @@ class Settings(BaseSettings):
         description="模型上下文窗口大小(token)。留空时按 llm_model 推断；用于推导消息裁剪/摘要预算"
     )
 
+    # === 提示词缓存（省计费） ===
+    prompt_cache_enabled: bool = Field(
+        default=False,
+        description=("是否采用「固定前缀置顶、动态段置尾」的提示词布局，以命中支持自动磁盘缓存的 provider。"
+                     "降固定提示词的重复计费。关闭（默认）时系统提示词逐字节不变")
+    )
+    prompt_cache_header_json: str = Field(
+        default="",
+        description=("显式 cache 头 JSON 字面量（如 anthropic 风格 cache_control），在开启提示词缓存时注入。"
+                     "空=不注入。不同 provider 头格式不一，需按自身 API 配置")
+    )
+
     # === 数据库配置 ===
     db_host: str = Field(default="localhost", description="数据库主机地址")
     db_port: int = Field(default=5432, ge=1, le=65535, description="数据库端口")
@@ -81,6 +93,21 @@ class Settings(BaseSettings):
         default=None,
         description="低信号安全意图的固定直答文案（prompt text，非 LLM 生成），'意图=文案' 逗号分隔段，"
                     "如 'smalltalk=你好，我是数据分析助手...'。未配置时用 intent_guard 内置兜底文案。"
+    )
+
+    # === RBAC / 限流（最小授权） ===
+    enable_rbac: bool = Field(
+        default=False,
+        description="是否启用表/列级 RBAC 与来源限流。默认关：关闭时守卫/鉴权路径与现状一致，零改动"
+    )
+    rbac_policy_json: str = Field(
+        default="",
+        description=("RBAC 角色策略 JSON 字面量或 '@相对路径'。roles.name.tables/columns/主要；"
+                     "default_role 供未列出来源回退（None=未匹配拒绝）。仅 enable_rbac=True 生效")
+    )
+    rbac_rate_limit: str = Field(
+        default="",
+        description="来源/令牌级滑动窗口限流，如 '10/min'、'1000/h'。空=不启用。仅 enable_rbac=True 生效"
     )
 
     # === 工具配置 ===
@@ -121,6 +148,25 @@ class Settings(BaseSettings):
     schema_embed_fn: Optional[str] = Field(
         default=None,
         description="可选的 embedder 点分导入路径：工厂形如 f() -> callable(query, table_text) -> float 相似度[0,1]。空=不启用"
+    )
+
+    # === 缓存后端 ===
+    cache_backend: str = Field(
+        default="memory",
+        description=("结果/图表缓存后端: memory=进程内存(默认) / redis=跨 worker 共享。"
+                     "redis 需装 redis[asyncio] 且配置 redis_url；连不上自动回退 memory")
+    )
+    redis_url: str = Field(
+        default="",
+        description=("Redis 连接串（cache_backend=redis 时用），如 redis://localhost:6379/0。"
+                     "默认为空=不启用 Redis 共享缓存。此配置在少设置审计(few-settings)中曾删除，"
+                     "B006 明确需要一个可选共享缓存落点后重新引入，默认空不影响 memory 默认行为")
+    )
+
+    # === 可观测 ===
+    observability_enabled: bool = Field(
+        default=False,
+        description="是否启用可观测指标采集与 /api/metrics 端点（Prometheus 文本格式）。默认关，关闭时采集均为 no-op"
     )
 
     # === 人工审核 / 审计 ===

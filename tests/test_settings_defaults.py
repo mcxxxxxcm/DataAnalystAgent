@@ -25,5 +25,7 @@ def test_dead_settings_removed():
     from config.settings import Settings
 
     s = Settings(_env_file=None)
-    for field in ("db_max_overflow", "cache_ttl", "redis_url", "agent_verbose"):
+    # redis_url 属 B006 有意回归（作为 cache_backend=redis 的可选落点，默认空不改变 memory 行为），
+    # 故不在「死配置」之列；其余三个仍须不存在。
+    for field in ("db_max_overflow", "cache_ttl", "agent_verbose"):
         assert not hasattr(s, field), f"已删除的死配置 {field} 不应存在于 Settings 模型"

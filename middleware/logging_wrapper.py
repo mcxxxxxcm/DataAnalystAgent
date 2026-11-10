@@ -12,6 +12,15 @@ from langchain.agents.middleware import wrap_tool_call
 from .logging_middleware import local_logger
 
 
+def _record_tool(tool_name: str, ms: float, success: bool) -> None:
+    """上报工具耗时/结果指标（observability, 关闭时 no-op）。"""
+    try:
+        from observability.metrics import record_tool as _rt
+        _rt(tool_name, ms, success)
+    except Exception:
+        pass
+
+
 @wrap_tool_call
 async def logging_middleware(request, handler) -> Any:
     """
@@ -48,6 +57,7 @@ async def logging_middleware(request, handler) -> Any:
             execution_time_ms=execution_time_ms,
             model_view=_capture_model_view(result),
         )
+        _record_tool(tool_name, execution_time_ms, success=True)
 
         return result
 
@@ -63,6 +73,7 @@ async def logging_middleware(request, handler) -> Any:
             error=str(e),
             model_view=_capture_model_view(None),
         )
+        _record_tool(tool_name, execution_time_ms, success=False)
         raise
 
 

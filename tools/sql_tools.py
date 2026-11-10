@@ -27,6 +27,24 @@ from utils.effect_queue import run_sql_durable, sql_key
 _SELECT_HARD_CAP = get_settings().sql_max_rows
 
 
+async def _run_guard(query: str):
+    """
+    统一 SQL 守卫注入点。
+
+    enable_rbac=False（默认）：不带任何额外 checker，等价旧 guard_query_sql(query)（含测试桩 patch）。
+    开启且当前请求有角色：注入「表（系统白名单 → 角色白名单）+ 列」组合守卫（additive，非替换）。
+    """
+    settings = get_settings()
+    if not settings.enable_rbac:
+        return await guard_query_sql(query)
+    from core.security.rbac import build_role_guards, current_role, get_policy
+    role = current_role.get()
+    if role is None:
+        return await guard_query_sql(query)
+    table_checker, column_checker = build_role_guards(get_policy(), role)
+    return await guard_query_sql(query, table_checker=table_checker, column_checker=column_checker)
+
+
 def _is_write_dml(sql: str) -> str:
     """识别写操作 DML 类型（INSERT/UPDATE/DELETE）；非写操作返回空串。"""
     head = str(sql).lstrip().upper()
@@ -85,7 +103,7 @@ async def query_database(query: str) -> str:
     start_time = time.time()
     timeout = get_settings().sql_timeout
     try:
-        sql, error = await guard_query_sql(query)
+        sql, error = await _run_guard(query)
         if error:
             result = QueryResult(success=False, error=error, execution_time=time.time() - start_time)
             return dump_result(result)

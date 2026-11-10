@@ -64,6 +64,7 @@ async def guard_query_sql(
     validator: Any = None,
     sanitizer: Any = None,
     table_checker: Any = None,
+    column_checker: Any = None,
 ) -> tuple[str, str | None]:
     """
     执行查询前的统一边界守卫（不触库）。
@@ -92,6 +93,13 @@ async def guard_query_sql(
             await checker(table)
         except ValueError as e:
             return query, f"查询涉及不允许的表: {e}"
+
+    # 2.5 列级边界：role 列白名单（additive，缺省 None 时与现状一致）
+    if column_checker is not None:
+        try:
+            await column_checker(str(query))
+        except ValueError as e:
+            return query, f"查询涉及越权列: {e}"
 
     # 3. 清理：规范化 + 自动 LIMIT（钳制到 sql_max_rows）
     sanitized = sanitizer.sanitize(str(query))

@@ -26,6 +26,10 @@
 |------|------|
 | 🧠 自然语言转 SQL | Agent 根据用户查询自动检索相关表结构并生成 SQL |
 | 🔒 多层 SQL 安全校验 | AST 解析 + 关键字/危险函数黑名单 + 注入检测 + 自动注入 LIMIT |
+| 🗄️ 多种 SQL 安全守卫 | 系统表白名单 + 工具级 scope；可选表/列级 RBAC（角色最小授权）+ 滑动窗口限流（`ENABLE_RBAC=true`） |
+| 💰 提示词缓存省计费 | `prompt_cache_enabled` 开启时固定前缀置顶、动态段置尾，命中 provider 自动磁盘缓存（默认关零行为变化） |
+| 🚀 多 worker 共享缓存 | `cache_backend=redis` 时 result/chart 缓存跨 worker 共享（`redis_url`）；未装/连不上自动回退内存 |
+| 📈 Prometheus 可观测 | `observability_enabled` 开启时 `GET /api/metrics` 暴露工具/请求/连接池指标（默认关） |
 | ✍️ 增删改写操作 | `query_database` 支持 INSERT/UPDATE/DELETE（`ENABLE_SQL_WRITE=true` 开启），返回受影响行数；写语句加 `RETURNING` 可回看写入后的真实数据；多行 `VALUES (...),(...)` 即单条批量插入；DELETE/UPDATE 必须带 WHERE，写后失效 schema 缓存 |
 | 👤 人工审核 (HITL) | 写操作 / 高风险查询在执行前拦截，由人工 approve/reject |
 | 🧵 多轮对话短期记忆 | 基于 `AsyncPostgresSaver`，会话（thread_id）上下文持久化到 PostgreSQL |
@@ -45,7 +49,9 @@
    │            └ schema.py  表结构缓存 + LLM 友好格式 + 关键词→表映射
    └─ security/ │ sql_validator.py  8 层 SQL 校验（AST/黑名单/注入）
                 │ sql_sanitizer.py  清理 + 自动 LIMIT + 复杂评估
-                └ risk_assessor.py  风险评级 → 是否需人工审核
+                │ risk_assessor.py  风险评级 → 是否需人工审核
+                │ rbac.py           表/列级角色最小授权（可选，默认关）
+                └ rate_limit.py     滑动窗口限流（可选，默认关）
 ─────────────────────────────────────────────────────────────────────────
 工具层          tools/                      暴露给 LLM 的可调用工具
    ├─ sql_tools.py     query_database / list_tables / get_table_schema /
@@ -54,7 +60,10 @@
 ─────────────────────────────────────────────────────────────────────────
 Agent 层        agent/                      基于 create_agent (Deep Agents) 组装
    ├─ analyst_agent.py  工厂：同步(内存)/异步(Postgres) 两种 Agent
-   └─ prompts.py        系统提示词 + Few-shot + 提示词构建函数
+   ├─ prompts.py        系统提示词 + Few-shot + 提示词构建函数
+   └─ prompt_cache.py   提示词缓存布局（固定前置+动态置尾，默认关）
+─────────────────────────────────────────────────────────────────────────
+可观测层        observability/               Prometheus 文本指标（门控 no-op，默认关）
 ─────────────────────────────────────────────────────────────────────────
 中间件层        middleware/                  LangChain 官方中间件 + 本地日志
    ├─ config.py         HITL 配置 / checkpointer(AsyncPostgresSaver) 初始化
@@ -68,6 +77,7 @@ API 层          api/                         FastAPI 应用与路由
 ─────────────────────────────────────────────────────────────────────────
 工具函数层      utils/                       chart_sandbox(代码执行沙箱) / checkpoint_cleanup
                                            │ bounded_cache(单一写者 BoundedTTLCache) / result_store(result_id 缓存)
+                                           │ cache_backend(memory/Redis 可切换，单一写者)
                                            └ effect_queue(持久化效果队列+指数退避) / sql_tools 通过 run_sql_durable 接通
 前端            static/index.html           对话式 Web UI
 入口            main.py / run_server.py / start_windows.py
@@ -176,6 +186,24 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | `AUDIT_LOG_ENABLED` | `true` | 是否记录审批/拒绝等 HITL 决策到 `audit.jsonl` |
 | `RECON_MODEL_VIEW_ENABLED` | `true` | 是否在工具调用日志记录 `model_view`（与送入 LLM 同阈值裁剪的内容），供会话重建/审计 |
 
+### 提示词缓存 / 缓存后端 / 可观测
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `PROMPT_CACHE_ENABLED` | `false` | 是否用「固定前缀置顶、动态段置尾」提示词布局命中 provider 自动磁盘缓存。默认关 → 系统提示词逐字节不变 |
+| `PROMPT_CACHE_HEADER_JSON` | 空 | 显式 cache 头 JSON 字面量（如 anthropic 风格 `cache_control`），开启缓存时注入 `extra_body`；空=不注入。不同 provider 头格式不一，需按自身 API 配置 |
+| `CACHE_BACKEND` | `memory` | 结果/图表缓存后端：`memory`=进程内存（默认）/ `redis`=跨 worker 共享。redis 需装 `redis[asyncio]` 且配 `REDIS_URL`；连不上自动回退 memory |
+| `REDIS_URL` | 空 | Redis 连接串（`CACHE_BACKEND=redis` 时用），如 `redis://localhost:6379/0`。空=不启用共享缓存 |
+| `OBSERVABILITY_ENABLED` | `false` | 是否启用可观测指标采集与 `GET /api/metrics` 端点（Prometheus 文本格式）。默认关，关闭时采集均为 no-op |
+
+### RBAC / 限流（最小授权）
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `ENABLE_RBAC` | `false` | 是否启用表/列级 RBAC 与来源限流。默认关：关闭时守卫/鉴权路径与现状一致，零改动 |
+| `RBAC_POLICY_JSON` | 空 | RBAC 角色策略 JSON 字面量或 `@相对路径`。角色声明 `tables`/`columns`/`tools_scope`；`default_role` 供未列出来源回退（None=未匹配拒绝） |
+| `RBAC_RATE_LIMIT` | 空 | 来源/令牌级滑动窗口限流，如 `10/min`、`1000/h`。空=不启用 |
+
 ### Agent / API
 
 | 变量 | 默认 | 说明 |
@@ -207,6 +235,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8085
 | GET | `/api/state/{thread_id}` | 查看会话状态（含短期记忆历史） |
 | GET | `/api/health` | 健康检查（含数据库连通性） |
 | GET | `/api/stats` | 性能可观测：连接池与线程池状态、结果缓存条目数（压测调参用） |
+| GET | `/api/metrics` | Prometheus 文本指标（工具/请求/连接池，`OBSERVABILITY_ENABLED=true` 时才暴露，否则 404） |
 | GET | `/api/logs` | 查询工具调用日志 |
 | GET | `/api/checkpoints/stats` | checkpoint 存储统计 |
 | POST | `/api/checkpoints/cleanup` | 清理过期 checkpoint（dry_run 默认开启） |
@@ -247,6 +276,8 @@ curl -X POST http://127.0.0.1:8085/api/approve \
 9. **NL 层前置拒答**（`intent_guard`，`ENABLE_INTENT_ROUTER=true` 开启）：`/query` 先用确定性意图分类器短路明确恶意 / 寒暄 / 离题请求，挡在进 LLM 之前省成本、缩窄风险面；只拒 `deny`、不拒歧义（保守低误杀）。默认关闭，不影响既有行为。
 10. **请求准入门 + 注意力经济**（`admission_gate`，`ENABLE_ADMISSION_GATE=true` 开启）：`/query` 按「来源 × 意图」合成确定性准入判定（admit/deny/clarify/reply）；只短路 `deny`/`reply`、不短路 `clarify`（低漏放）；`ADMISSION_MODE=allowlist` 时经 `X-Admission-Key` 校验来源；寒暄/结构询问低信号安全意图用固定文案直答，不烧 LLM。文案经 `INTENT_CANONICAL_REPLIES` 配置，非硬编码。默认关闭，不影响既有行为。
 11. **恒真/恒假布尔注入拦截**（`sql_validator.py` `TAUTOLOGY_PATTERNS`）：仅当比较符**两侧都是字面量**（`1=1`、`'a'='a'` 这类自比）才拒绝，`region='Jingdong'`、`amount>100` 因左是标识符不命中 → 不误杀合法过滤。
+12. **表/列级 RBAC（最小授权）**（`rbac.py`，`ENABLE_RBAC=true` 开启）：按来源 key → 角色解析，注入「系统表白名单 → 角色表/列白名单」的 addititive 组合 checker；列越权拒绝、列提取失败 fail-closed；未匹配来源可设 `default_role` 或拒绝。默认关闭时守卫路径与现状逐字节一致。
+13. **滑动窗口限流**（`rate_limit.py`，`RBAC_RATE_LIMIT` 配置）：按来源/令牌 key 滑动窗口计数，超限返回 429；key 上限防无界、惰性清过期。默认关闭为 no-op。
 
 ---
 
@@ -312,7 +343,7 @@ py -m bench.loadtest --endpoint query --query '本月销售额是多少' --dry-r
 | 5 | 系统提示词写死示例表，与真实 Schema 脱节 | ✅ 已移除硬编码示例表，改为动态依赖 `get_relevant_schemas` |
 | 6 | `chart_tools` 与 `viz_tools` 重复实现 | ✅ 已删除 `viz_tools.py`，收敛为单一实现 |
 | 7 | 缺少测试 | ✅ 已具备分类回归评测（`eval/cases/` 41 例）+ `tests/` 203 项单测，`pytest tests/ -q` 为改动硬门槛 |
-| 8 | 后续优化方向 | 🗺️ 带优先级（P0-P2）路线见 `openspec/tasks.md` 候选/backlog（Embedding 召回、意图路由器接线、LLM 提示词缓存、可观测、多 worker+Redis 等 10 项） |
+| 8 | 后续优化方向 | 🗺️ 带优先级（P0-P2）路线见 `openspec/tasks.md` 候选/backlog（Embedding 召回、意图路由器接线等） |
 | 9 | SDD 规范维护 | 📐 SDD 治理文档与代码基线同步（`agreement.md` §2.5 DoD / §6 防漂移）；归档 change 时回填 CAP/TASK/TERM |
 
 ---

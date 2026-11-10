@@ -30,6 +30,16 @@ from middleware.truncation import condense_tool_results
 from .prompts import build_system_prompt
 
 
+def _llm_cache_model_kwargs(system_prompt: str) -> Optional[Dict[str, Any]]:
+    """提示词缓存（B005）：按 config 注入显式 cache 头。关闭/未配置 → None（不注入，零改动）。"""
+    settings = get_settings()
+    if not settings.prompt_cache_enabled or not settings.prompt_cache_header_json:
+        return None
+    from .prompt_cache import build_cache_kwargs
+    header = build_cache_kwargs(system_prompt, settings.prompt_cache_header_json)
+    return {"model_kwargs": {"extra_body": header}} if header else None
+
+
 class AnalystAgentFactory:
     """
     数据分析Agent工厂
@@ -72,16 +82,18 @@ class AnalystAgentFactory:
         返回：
             配置好的 Agent 实例
         """
+        system_prompt = custom_system_prompt or build_system_prompt(
+            db_info=f"数据库: {self.settings.db_name}",
+            custom_instructions="请用中文回复用户"
+        )
+
+        _extra_model = _llm_cache_model_kwargs(system_prompt) or {}
         llm = ChatOpenAI(
             model=self.settings.llm_model,
             temperature=self.settings.llm_temperature,
             api_key=self.settings.api_key,
-            base_url=self.settings.base_url
-        )
-
-        system_prompt = custom_system_prompt or build_system_prompt(
-            db_info=f"数据库: {self.settings.db_name}",
-            custom_instructions="请用中文回复用户"
+            base_url=self.settings.base_url,
+            **_extra_model,
         )
 
         tools = custom_tools or get_enabled_tools(tool_scope or self.settings.default_tool_scope)
@@ -161,16 +173,18 @@ class AnalystAgentFactory:
         返回：
             配置好的 Agent 实例
         """
+        system_prompt = custom_system_prompt or build_system_prompt(
+            db_info=f"数据库: {self.settings.db_name}",
+            custom_instructions="请用中文回复用户"
+        )
+
+        _extra_model = _llm_cache_model_kwargs(system_prompt) or {}
         llm = ChatOpenAI(
             model=self.settings.llm_model,
             temperature=self.settings.llm_temperature,
             api_key=self.settings.api_key,
-            base_url=self.settings.base_url
-        )
-
-        system_prompt = custom_system_prompt or build_system_prompt(
-            db_info=f"数据库: {self.settings.db_name}",
-            custom_instructions="请用中文回复用户"
+            base_url=self.settings.base_url,
+            **_extra_model,
         )
 
         tools = custom_tools or get_enabled_tools(tool_scope or self.settings.default_tool_scope)
@@ -230,27 +244,34 @@ class AnalystAgentFactory:
         # 锁内构建完成后返回，不在锁内 return 避免不必要的锁持有
         return self._agent_cache[name]
 
-    async def get_cached_async_agent(self, name: str = "default") -> Any:
+    async def get_cached_async_agent(self, name: str = "default", tool_scope: Optional[str] = None) -> Any:
         """
         获取缓存的Agent实例（异步版本）
 
         使用 AsyncPostgresSaver，支持短期记忆。
-        并发冷启动去重：同一 name 在建的任务共享同一个 asyncio.Task，
-        避免高并发首请求时多个协程同时 create_async_agent()。
+        并发冷启动去重：同一缓存键在建的任务共享同一个 asyncio.Task，避免高并发首请求重复创建。
+        - name：缓存键（默认 "default"，向后兼容）。
+        - tool_scope：RBAC 角色可注入其权限子集；指定时按 scope 独立缓存。
         """
-        if name in self._async_agent_cache:
-            return self._async_agent_cache[name]
-        if name in self._async_agent_pending:
-            return await self._async_agent_pending[name]
-        task = asyncio.create_task(self.create_async_agent())
-        self._async_agent_pending[name] = task
+        if tool_scope:
+            cache_key = f"scope:{tool_scope}"
+            agent_name = f"data-analyst-{tool_scope}"
+        else:
+            cache_key = name
+            agent_name = name
+        if cache_key in self._async_agent_cache:
+            return self._async_agent_cache[cache_key]
+        if cache_key in self._async_agent_pending:
+            return await self._async_agent_pending[cache_key]
+        task = asyncio.create_task(self.create_async_agent(name=agent_name, tool_scope=tool_scope))
+        self._async_agent_pending[cache_key] = task
         try:
             agent = await task
         except BaseException:
-            self._async_agent_pending.pop(name, None)
+            self._async_agent_pending.pop(cache_key, None)
             raise
-        self._async_agent_cache[name] = agent
-        self._async_agent_pending.pop(name, None)
+        self._async_agent_cache[cache_key] = agent
+        self._async_agent_pending.pop(cache_key, None)
         return agent
 
     def clear_cache(self) -> None:
@@ -273,14 +294,13 @@ def get_agent() -> Any:
     return agent_factory.get_cached_agent()
 
 
-async def get_async_agent() -> Any:
+async def get_async_agent(tool_scope: Optional[str] = None) -> Any:
     """
-    获取默认Agent实例（异步版本）
+    获取Agent实例（异步版本,持久化短期记忆）。
 
-    使用 AsyncPostgresSaver，支持持久化的短期记忆
-    多轮对话上下文会保存在数据库中
+    可指定 tool_scope（RBAC 角色注入其权限子集用）；None 用配置 default_tool_scope。
     """
-    return await agent_factory.get_cached_async_agent()
+    return await agent_factory.get_cached_async_agent(tool_scope=tool_scope)
 
 
 async def run_query(

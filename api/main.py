@@ -140,6 +140,44 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    """请求计数/耗时指标（config.observability_enabled 关闭时 no-op，不做任何开销）。"""
+    from observability import metrics as obs
+    if not obs.enabled():
+        return await call_next(request)
+    import time
+    start = time.time()
+    response = await call_next(request)
+    obs.record_request(request.method, request.url.path, response.status_code, (time.time() - start) * 1000)
+    return response
+
+
+# 来源/令牌级滑动窗口限流（lazy 解析一次，默认关：enable_rbac=False 或 rbac_rate_limit 为空时旁路）
+_rate_limiter = None
+_rate_limiter_checked = False
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """RBAC 开启时按来源/令牌限流，超限返回 429。默认关（enable_rbac=False），零改动。"""
+    global _rate_limiter, _rate_limiter_checked
+    if not get_settings().enable_rbac:
+        return await call_next(request)
+    if not _rate_limiter_checked:
+        from core.security.rate_limit import parse_rate_limit
+        _rate_limiter = parse_rate_limit(get_settings().rbac_rate_limit)
+        _rate_limiter_checked = True
+    if _rate_limiter is not None:
+        key = request.headers.get("X-Admission-Key") or request.headers.get("Authorization", "")
+        if key and not _rate_limiter.allow(key):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too Many Requests: 请求过于频繁，请稍后再试"}
+            )
+    return await call_next(request)
+
+
 app.include_router(router, prefix="/api")
 
 STATIC_DIR = PROJECT_ROOT / "static"

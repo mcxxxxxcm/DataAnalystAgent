@@ -13,7 +13,7 @@ import asyncio
 from utils.result_store import get_result
 from utils.chart_spec import build_echarts_option
 from utils.chart_sandbox import execute_chart_code
-from utils.bounded_cache import BoundedTTLCache
+from utils.cache_backend import CacheBackend, get_cache_backend
 from tools.result_schemas import ChartResult, dump_result
 
 from concurrent.futures import ThreadPoolExecutor
@@ -26,10 +26,10 @@ _executor = ThreadPoolExecutor(
 
 
 # 全局缓存，用于存储生成的 ECharts option（带 TTL 与上限，防止无界增长）。
-# 单一写者：状态由 `_spec_cache`（BoundedTTLCache）独占写路径；读取走只读 `get`（非摧毁式），
+# 单一写者：状态由 `_spec_cache`（CacheBackend）独占写路径；读取走只读 `get`（非摧毁式），
 # 避免 /chart/option 重试或多次读取时丢 spec（对齐「Read queries never write」）。
-# 并发说明：单事件循环下同步 dict 操作无真争用，故意不加锁；多进程共享需 Redis（见 backlog B006）。
-_spec_cache: BoundedTTLCache[str, Dict[str, Any]] = BoundedTTLCache()
+# 默认内存；设 cache_backend=redis 后跨 worker 共享（backlog B006）。命名空间 chart: 防跨 owner 串写。
+_spec_cache: CacheBackend[str, Dict[str, Any]] = get_cache_backend(prefix="chart:")
 
 
 def _store_spec(chart_id: str, option: Dict[str, Any]) -> None:

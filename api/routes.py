@@ -11,7 +11,7 @@ import time
 import hashlib
 from typing import AsyncIterator, Optional, List, Any, Dict
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 import json
 
 from middleware import local_logger
@@ -376,7 +376,9 @@ async def query(request: QueryRequest):
             )
 
     try:
-        agent = await get_async_agent()
+        agent = await _resolve_query_agent(request)
+        if agent is None:
+            return JSONResponse(status_code=403, content={"detail": "Forbidden: 来源未关联任何角色"})
         config = {"configurable": {"thread_id": thread_id}}
 
         result = await agent.ainvoke(
@@ -612,6 +614,55 @@ async def stats():
             "entries": result_cache_size(),
         },
     }
+
+
+async def _resolve_query_agent(request) -> Optional[Any]:
+    """按配置解析 /query 用 agent：RBAC 关闭返回默认 agent；开启则解析角色并注入其工具 scope。
+
+    返回 None 表示来源未关联任何角色（入口应拒绝，403）。"""
+    from agent import get_async_agent
+    from config.settings import get_settings
+
+    settings = get_settings()
+    if not settings.enable_rbac:
+        return await get_async_agent()
+    from core.security.rbac import resolve_role, get_policy, current_role
+    role = resolve_role(request.headers.get("X-Admission-Key"))
+    if role is None:
+        return None
+    current_role.set(role)
+    rp = get_policy().roles[role]
+    scope = rp.tools_scope if rp.tools_scope and rp.tools_scope != "full" else None
+    return await get_async_agent(tool_scope=scope)
+
+
+@router.get("/metrics")
+async def metrics():
+    """
+    可观测指标（Prometheus 文本格式）。
+
+    仅当 config.observability_enabled=True 时暴露；关闭时 404。
+    复用 /stats 的连接池/结果缓存快照刷新对应 gauge。
+    """
+    from config.settings import get_settings
+    from utils.result_store import cache_size as result_cache_size
+    from observability import metrics as obs_metrics
+
+    if not obs_metrics.enabled():
+        raise HTTPException(status_code=404, detail="metrics 未启用（observability_enabled=False）")
+
+    pool = db_pool.get_stats()
+    settings = get_settings()
+    obs_metrics.refresh_pool(
+        size=pool.size,
+        min_size=pool.min_size,
+        max_size=pool.max_size,
+        idle=pool.idle_size,
+        result_cache_entries=result_cache_size(),
+        thread_pool_size=settings.tool_thread_pool_size,
+    )
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(obs_metrics.render_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @router.get("/logs", response_model=LogResponse)
